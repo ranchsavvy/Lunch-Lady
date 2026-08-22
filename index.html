@@ -116,7 +116,7 @@
 
 <div class="tabbar">
   <button data-tab="today"><span class="ic">📋</span>Today</button>
-  <button data-tab="pens"><span class="ic">🐄</span>Pens</button>
+  <button data-tab="pens"><span class="ic">🐄</span>Roster</button>
   <button data-tab="rations"><span class="ic">🧾</span>Rations</button>
   <button data-tab="history"><span class="ic">📅</span>History</button>
   <button data-tab="settings"><span class="ic">⚙️</span>Settings</button>
@@ -127,6 +127,23 @@
 <script>
 /* ---------------- storage ---------------- */
 const STORAGE_KEY = 'rhr_feedwagon_v1';
+
+/* ---------------- Ranch Savvy link (read-only) ---------------- */
+// Optional one-way pull of herd names + head counts from the Ranch Savvy
+// cattle inventory (Supabase). Fill in RS_ANON_KEY and RS_APP_KEY below to
+// turn it on -- leave them '' and the feature stays completely hidden and
+// the app behaves exactly as before. The pull is CACHED (on app open, on
+// return-to-foreground when stale, or a manual Refresh tap) -- never a live
+// dependency. Ranch Savvy being unreachable costs nothing but a stale
+// count; every screen keeps working off the last saved numbers. Nothing is
+// ever written back: Ranch Savvy stays the system of record for cattle,
+// this app only reads.
+// Server side: see ranch-savvy-sync.sql in the repo -- one SECURITY DEFINER
+// function, get_herd_summary(), returning {herd_id, name, active_count}
+// per active herd, gated by the x-feedwagon-key request header.
+const RS_URL      = 'https://tthhlfuqsomgulasjszv.supabase.co';
+const RS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0aGhsZnVxc29tZ3VsYXNqc3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExODM4MjksImV4cCI6MjA4Njc1OTgyOX0.gI_88rFGPbkFgdZccBmcq4LfRJPl-_UuU4JLCI1kvG8'; // Supabase anon key (public by design; RLS still guards everything else)
+const RS_APP_KEY  = 'k9Trx2mWq8vBn4Lp7cYd3fHs6jZa'; // must match the key hardcoded inside get_herd_summary()
 
 function uid(){
   if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -189,6 +206,8 @@ function defaultState(){
       ]
     }],
     pens: [],
+    groups: [],
+    ranchSavvy: {herds: [], fetchedAt: null},
     feedCalls:[]
   };
 }
@@ -232,6 +251,7 @@ function ingredientDmPct(id){
   return (ing && ing.dmPct!=null) ? ing.dmPct : 100;
 }
 function rationById(id){ return state.rations.find(r=>r.id===id); }
+function groupById(id){ return (state.groups||[]).find(g=>g.id===id); }
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -252,11 +272,13 @@ function showToast(msg){
 function reporterName(){
   return (state.settings.reporterName||'').trim() || '(name not set - Settings tab)';
 }
-function feedCallHasLoads(fc){ return fc && fc.loads && fc.loads.length>0; }
+function feedCallHasContent(fc){
+  return !!(fc && ((fc.loads && fc.loads.length>0) || (fc.fieldDeliveries && fc.fieldDeliveries.length>0)));
+}
 function pendingReportDates(){
   const today = todayStr();
   return state.feedCalls
-    .filter(fc=> fc.date < today && feedCallHasLoads(fc) && (!fc.reportDriveAt || !fc.reportEmailAt))
+    .filter(fc=> fc.date < today && feedCallHasContent(fc) && (!fc.reportDriveAt || !fc.reportEmailAt))
     .map(fc=>fc.date)
     .sort();
 }
@@ -285,11 +307,35 @@ function buildDailyReportText(fc){
     lines.push(`  Load total: target ${fmt(l.totalTargetLbs)} lb / actual ${l.totalActualLbs!=null?fmt(l.totalActualLbs):'-'} lb`);
     lines.push('');
   });
+  const fds = fc.fieldDeliveries||[];
+  fds.forEach((fd,i)=>{
+    const t = fdTotals(fd);
+    lines.push(`Field delivery ${i+1}: ${fd.groupName} - ${fd.headCount} hd - covers ${fd.daysCovered} day${fd.daysCovered==1?'':'s'}`);
+    (fd.lines||[]).forEach(l=>{
+      if(l.mode==='count'){
+        lines.push(`  ${fdIngName(l)}: ${fmt(l.count)} x ${fmt(l.unitWeight)} lb = ${fmt(fdLineLbs(l))} lb`);
+      } else {
+        lines.push(`  ${fdIngName(l)}: ${fmt(fdLineLbs(l))} lb (estimated)`);
+      }
+    });
+    lines.push(`  Delivered ${fmt(t.actual)} lb / target ${fmt(t.target)} lb${t.variancePct!==null?` (${t.variancePct>0?'+':''}${fmt(t.variancePct)}%)`:''}`);
+    if(t.perHdDay!==null) lines.push(`  = ${fmt(t.perHdDay)} lb/hd/day vs target rate ${fmt(fd.targetRate)}`);
+    lines.push('');
+  });
   const dayTarget = fc.loads.reduce((s,l)=>s+(l.totalTargetLbs||0),0);
   const anyDayActual = fc.loads.some(l=>l.totalActualLbs!=null);
   const dayActual = fc.loads.reduce((s,l)=> l.totalActualLbs!=null ? s+l.totalActualLbs : s, 0);
-  lines.push(`Day total target: ${fmt(dayTarget)} lb`);
-  lines.push(`Day total actual: ${anyDayActual?fmt(dayActual):'-'} lb`);
+  // mixer totals and field-delivery totals stay SEPARATE on purpose: a
+  // 4-day bale drop lumped into one day's mixer total would misstate both.
+  const mixerLabel = fds.length ? 'Mixer total' : 'Day total';
+  if(fc.loads.length){
+    lines.push(`${mixerLabel} target: ${fmt(dayTarget)} lb`);
+    lines.push(`${mixerLabel} actual: ${anyDayActual?fmt(dayActual):'-'} lb`);
+  }
+  if(fds.length){
+    const fdDelivered = fds.reduce((s,fd)=>s+fdTotals(fd).actual,0);
+    lines.push(`Field deliveries total: ${fmt(fdDelivered)} lb delivered (targets judged per delivery over the days each covers)`);
+  }
   lines.push('');
   lines.push('--- Comments ---');
   lines.push((fc.comments||'').trim() || '(none)');
@@ -310,6 +356,25 @@ function buildDailyReportCsv(fc){
         e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no'
       ]);
     });
+  });
+  // Field deliveries ride in the SAME columns (no schema change to the
+  // accumulating daily CSVs): Load # is 'FD1', 'FD2'...; Pens carries the
+  // group name; Ration carries the coverage window. Targets only exist at
+  // the delivery level (no per-ingredient recipe), so ingredient rows show
+  // actual lbs only and a '(delivery total)' row carries target/variance.
+  (fc.fieldDeliveries||[]).forEach((fd,i)=>{
+    const t = fdTotals(fd);
+    const rationCol = `Field delivery - covers ${fd.daysCovered} day${fd.daysCovered==1?'':'s'}`;
+    (fd.lines||[]).forEach(l=>{
+      rows.push([
+        fc.date, reporterName(), 'FD'+(i+1), fd.groupName, fd.headCount, rationCol,
+        fdIngName(l), '', fdLineLbs(l), '', '', 'no'
+      ]);
+    });
+    rows.push([
+      fc.date, reporterName(), 'FD'+(i+1), fd.groupName, fd.headCount, rationCol,
+      '(delivery total)', t.target, t.actual, round1(t.actual-t.target), t.variancePct??'', 'no'
+    ]);
   });
   rows.push([]);
   rows.push(['Comments', (fc.comments||'').trim() || '(none)']);
@@ -358,6 +423,103 @@ function varianceClass(pct){
   if(a<=state.settings.yellowPct) return 'v-green';
   if(a<=state.settings.redPct) return 'v-yellow';
   return 'v-red';
+}
+
+/* ---------------- Ranch Savvy sync (read-only, cached) ---------------- */
+// One-way head-count pull. Pens and Groups can each optionally link to a
+// Ranch Savvy herd (rsHerdId); every successful pull pushes the herd's
+// live active-animal count into the linked roster entry. Links whose herd
+// stops coming back (deactivated / sold out in Ranch Savvy) keep their
+// last-known count -- flagged on the roster card, never zeroed. Load math
+// needs no special handling: loads already read head counts from the live
+// roster at build time.
+function ranchSavvyConfigured(){ return !!(RS_URL && RS_ANON_KEY); }
+function rsHerds(){ return (state.ranchSavvy && state.ranchSavvy.herds) || []; }
+function rsHerdById(id){ return rsHerds().find(h=>h.herd_id===id) || null; }
+function rsLinkBroken(entry){
+  // only call it broken when we HAVE a successful pull to judge against
+  return !!(entry.rsHerdId && state.ranchSavvy && state.ranchSavvy.fetchedAt && !rsHerdById(entry.rsHerdId));
+}
+function rsFetchedAtLabel(){
+  const at = state.ranchSavvy && state.ranchSavvy.fetchedAt;
+  if(!at) return 'never';
+  const d = new Date(at);
+  return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '
+       + d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+}
+function rsStaleMs(){
+  const at = state.ranchSavvy && state.ranchSavvy.fetchedAt;
+  if(!at) return Infinity;
+  return Date.now() - new Date(at).getTime();
+}
+async function fetchRanchSavvyHerds(){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), 8000);
+  try{
+    const res = await fetch(RS_URL + '/rest/v1/rpc/get_herd_summary', {
+      method: 'POST',
+      headers: {
+        'apikey': RS_ANON_KEY,
+        'Authorization': 'Bearer ' + RS_ANON_KEY,
+        'x-feedwagon-key': RS_APP_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: '{}',
+      signal: ctrl.signal
+    });
+    if(!res.ok) return {ok:false, error:'HTTP '+res.status};
+    const rows = await res.json();
+    if(!Array.isArray(rows)) return {ok:false, error:'unexpected response'};
+    const herds = rows.map(r=>({
+      herd_id: String(r.herd_id),
+      name: String(r.name||''),
+      active_count: Number(r.active_count)||0
+    }));
+    state.ranchSavvy = {herds, fetchedAt: new Date().toISOString()};
+    applyRanchSavvyCounts();
+    saveState();
+    return {ok:true};
+  }catch(e){
+    return {ok:false, error: (e && e.name==='AbortError') ? 'timed out' : 'network unavailable'};
+  }finally{ clearTimeout(timer); }
+}
+function applyRanchSavvyCounts(){
+  state.pens.forEach(p=>{
+    if(!p.rsHerdId) return;
+    const h = rsHerdById(p.rsHerdId);
+    if(h) p.headCount = h.active_count;
+  });
+  (state.groups||[]).forEach(g=>{
+    if(!g.rsHerdId) return;
+    const h = rsHerdById(g.rsHerdId);
+    if(h) g.headCount = h.active_count;
+  });
+}
+function anyEditorOpen(){
+  return !!(openLoadId || openRationId || openPenEditId || openGroupEditId
+            || document.getElementById('overlay'));
+}
+async function refreshRanchSavvy(manual){
+  if(!ranchSavvyConfigured()) return;
+  const r = await fetchRanchSavvyHerds();
+  if(manual){
+    showToast(r.ok ? 'Ranch Savvy counts updated'
+                   : 'Sync failed ('+r.error+') - using last saved counts');
+  }
+  // never repaint underneath someone mid-entry; the fresh numbers are
+  // saved and show up on the next natural render either way
+  if(r.ok && !anyEditorOpen()) render();
+}
+function rsLinkSelectHtml(selectId, currentRsHerdId){
+  const opts = rsHerds().map(h=>
+    `<option value="${h.herd_id}" ${h.herd_id===currentRsHerdId?'selected':''}>${escapeHtml(h.name)} (${h.active_count} hd)</option>`
+  ).join('');
+  const orphan = (currentRsHerdId && !rsHerdById(currentRsHerdId))
+    ? `<option value="${escapeHtml(currentRsHerdId)}" selected>(linked herd not in last pull)</option>` : '';
+  return `<select id="${selectId}">
+    <option value="">Not linked - head count entered by hand</option>
+    ${orphan}${opts}
+  </select>`;
 }
 
 /* ---------------- pen weight / intake projection ---------------- */
@@ -520,6 +682,34 @@ function loadPenBreakdown(load){
   });
 }
 
+/* ---------------- field delivery math ---------------- */
+// Feed that never goes through the mixer wagon: bale grazing, filling an
+// unmetered supplement feeder on stalks. One Group per entry. daysCovered
+// is typed in ON PURPOSE, never inferred -- a bale drop meant to last 4
+// days has to be judged against 4 days' worth of target, and delivery
+// timing alone can't tell you that. Each ingredient line is independently
+// either count x estimated unit weight (3 bales x 1250 lb) or a straight
+// lb estimate. Everything here is AS-FED -- that's the basis a bale weight
+// or estimate is in; DM shows as info only. Group snapshots (name / head
+// count / target rate) are frozen onto the entry at save time so history
+// stays intact if the group is later edited or deleted, same as loads do
+// with pens and rations.
+function fdLineLbs(line){
+  if(line.mode==='count') return round1((Number(line.count)||0) * (Number(line.unitWeight)||0));
+  return round1(Number(line.lbs)||0);
+}
+function fdTotals(fd){
+  const actual = round1((fd.lines||[]).reduce((s,l)=>s+fdLineLbs(l),0));
+  const days = Number(fd.daysCovered)||1;
+  const target = round1((fd.headCount||0) * (Number(fd.targetRate)||0) * days);
+  const variancePct = target>0 ? round1(((actual-target)/target)*100) : null;
+  const perHdDay = (fd.headCount>0 && days>0) ? round1(actual/fd.headCount/days) : null;
+  let dmActual = 0;
+  (fd.lines||[]).forEach(l=>{ dmActual += fdLineLbs(l) * (ingredientDmPct(l.ingredientId)/100); });
+  return {actual, target, variancePct, perHdDay, dmActual: round1(dmActual)};
+}
+function fdIngName(line){ return line.ingredientName || ingredientName(line.ingredientId); }
+
 /* ---------------- routing / render ---------------- */
 let currentTab = 'today';
 let currentDate = todayStr();
@@ -527,8 +717,10 @@ let lastKnownToday = todayStr();
 let openLoadId = null; // when set, load-entry fullscreen is showing
 let openRationId = null; // when set, ration editor fullscreen is showing ('new' for new)
 let openPenEditId = null; // when set, pen roster editor fullscreen is showing ('new' for new)
+let openGroupEditId = null; // when set, group editor fullscreen is showing ('new' for new)
 let historyFilter = '';
 let showArchivedPens = false;
+let showArchivedGroups = false;
 
 // Android keeps installed web apps suspended in memory for days. Without
 // this, an app resumed the next morning still treats yesterday as "today":
@@ -539,16 +731,21 @@ let showArchivedPens = false;
 // it was started).
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState!=='visible') return;
+  // Android rarely cold-loads an installed web app, so "return to
+  // foreground" is this app's real "app open". A stale Ranch Savvy cache
+  // gets refreshed quietly in the background here (guarded inside against
+  // repainting over an open editor).
+  if(ranchSavvyConfigured() && rsStaleMs() > 6*3600000) refreshRanchSavvy(false);
   const now = todayStr();
   if(now===lastKnownToday) return;
   const wasViewingToday = currentDate===lastKnownToday;
   lastKnownToday = now;
-  if(openLoadId||openRationId||openPenEditId) return;
+  if(openLoadId||openRationId||openPenEditId||openGroupEditId) return;
   if(wasViewingToday || currentTab==='today'){ currentDate = now; }
   render();
 });
 
-function setTab(t){ currentTab=t; openLoadId=null; openRationId=null; openPenEditId=null; render(); }
+function setTab(t){ currentTab=t; openLoadId=null; openRationId=null; openPenEditId=null; openGroupEditId=null; render(); }
 
 document.querySelectorAll('.tabbar button').forEach(b=>{
   b.addEventListener('click', ()=> setTab(b.dataset.tab));
@@ -562,6 +759,7 @@ function render(){
   if(openLoadId){ app.innerHTML=''; renderLoadEntry(openLoadId); return; }
   if(openRationId){ app.innerHTML=''; renderRationEditor(openRationId); return; }
   if(openPenEditId){ app.innerHTML=''; renderPenEditor(openPenEditId); return; }
+  if(openGroupEditId){ app.innerHTML=''; renderGroupEditor(openGroupEditId); return; }
   if(currentTab==='today') app.innerHTML = renderToday();
   else if(currentTab==='pens') app.innerHTML = renderPens();
   else if(currentTab==='rations') app.innerHTML = renderRations();
@@ -580,6 +778,7 @@ function getOrCreateFeedCall(dateStr){
 function renderToday(){
   const fc = state.feedCalls.find(f=>f.date===currentDate);
   const loads = fc ? fc.loads : [];
+  const fds = fc ? (fc.fieldDeliveries||[]) : [];
   let totalTarget = loads.reduce((s,l)=>s+(l.totalTargetLbs||0),0);
   let totalActual = loads.reduce((s,l)=> l.totalActualLbs!==null && l.totalActualLbs!==undefined ? s+l.totalActualLbs : s,0);
 
@@ -591,7 +790,7 @@ function renderToday(){
     <div class="muted" style="margin-top:4px">Tap to jump to ${displayDate(pending[0])}${pending.length>1?' (oldest first)':''}.</div>
   </div>` : '';
 
-  const reportCard = feedCallHasLoads(fc) ? `
+  const reportCard = feedCallHasContent(fc) ? `
   <div class="card">
     <h2>Daily Report</h2>
     <label>Comments for this day's report (optional)</label>
@@ -646,8 +845,42 @@ function renderToday(){
       loads.map(l=>renderLoadCard(l)).join('')}
   </div>
 
+  <div style="margin-top:16px">
+    <div style="font-weight:700;margin-bottom:6px">Field Deliveries <span class="muted" style="font-weight:400">&mdash; feed that skips the mixer</span></div>
+    ${fds.length ? fds.map(fd=>renderFdCard(fd,false)).join('') : `<div class="muted" style="margin-bottom:8px">None logged for this date.</div>`}
+    <button class="btn secondary block" id="addFdBtn">+ Add Field Delivery (bales / feeder)</button>
+  </div>
+
   ${reportCard}
   `;
+}
+
+function renderFdCard(fd, readOnly){
+  const t = fdTotals(fd);
+  const varTag = t.variancePct!==null
+    ? `<span class="variance-tag ${varianceClass(t.variancePct)}">${t.variancePct>0?'+':''}${fmt(t.variancePct)}%</span>`
+    : `<span class="variance-tag v-none">no target</span>`;
+  const lineSummary = (fd.lines||[]).map(l=>
+    l.mode==='count'
+      ? `${escapeHtml(fdIngName(l))} ${fmt(l.count)}&times;${fmt(l.unitWeight)}`
+      : `${escapeHtml(fdIngName(l))} ${fmt(fdLineLbs(l))} lb`
+  ).join(' &middot; ');
+  return `
+  <div class="card" data-fd="${fd.id}">
+    <div class="row">
+      <div>
+        <div style="font-weight:700">${escapeHtml(fd.groupName)}</div>
+        <div class="muted">${fd.headCount} hd &middot; covers ${fd.daysCovered} day${fd.daysCovered==1?'':'s'} &middot; target ${fmt(fd.targetRate)} lb/hd/day</div>
+      </div>
+      ${readOnly?'':`<button class="small-x" data-delfd="${fd.id}">✕</button>`}
+    </div>
+    ${lineSummary?`<div class="muted" style="margin-top:4px">${lineSummary}</div>`:''}
+    <div class="row" style="margin-top:8px">
+      <div class="muted">Delivered <b>${fmt(t.actual)} lb</b> / target ${fmt(t.target)} lb ${varTag}</div>
+      ${t.perHdDay!==null?`<div class="muted">${fmt(t.perHdDay)} lb/hd/day</div>`:''}
+    </div>
+    ${readOnly?'':`<button class="btn secondary block" style="margin-top:8px" data-editfd="${fd.id}">Edit Delivery</button>`}
+  </div>`;
 }
 
 function renderLoadCard(load){
@@ -696,6 +929,19 @@ function wireTabEvents(){
         saveState(); render();
       });
     }));
+    document.getElementById('addFdBtn')?.addEventListener('click', ()=> openFieldDeliverySheet(null));
+    document.querySelectorAll('[data-editfd]').forEach(b=>b.addEventListener('click', ()=>{
+      const fc = state.feedCalls.find(f=>f.date===currentDate);
+      const fd = fc && (fc.fieldDeliveries||[]).find(x=>x.id===b.dataset.editfd);
+      if(fd) openFieldDeliverySheet(fd);
+    }));
+    document.querySelectorAll('[data-delfd]').forEach(b=>b.addEventListener('click', ()=>{
+      confirmAction('Remove this field delivery from this date?', ()=>{
+        const fc = state.feedCalls.find(f=>f.date===currentDate);
+        if(fc) fc.fieldDeliveries = (fc.fieldDeliveries||[]).filter(x=>x.id!==b.dataset.delfd);
+        saveState(); render();
+      });
+    }));
     document.getElementById('pendingReportBanner')?.addEventListener('click', e=>{
       currentDate = e.currentTarget.dataset.jumpdate; render();
     });
@@ -731,6 +977,25 @@ function wireTabEvents(){
     document.querySelectorAll('[data-delpen]').forEach(b=>b.addEventListener('click', e=>{
       confirmAction('Delete this pen from your roster? Loads already built from it keep their own snapshot, so past history is unaffected.', ()=>{
         state.pens = state.pens.filter(x=>x.id!==e.target.dataset.delpen);
+        saveState(); render();
+      });
+    }));
+    document.getElementById('rsRefreshBtn')?.addEventListener('click', async e=>{
+      e.target.disabled = true; e.target.textContent = 'Refreshing...';
+      await refreshRanchSavvy(true);
+      const btn = document.getElementById('rsRefreshBtn');
+      if(btn){ btn.disabled = false; btn.textContent = 'Refresh'; }
+    });
+    document.getElementById('newGroupBtn')?.addEventListener('click', ()=>{ openGroupEditId='new'; render(); });
+    document.querySelectorAll('[data-editgroup]').forEach(b=>b.addEventListener('click', ()=>{ openGroupEditId=b.dataset.editgroup; render(); }));
+    document.getElementById('toggleArchivedGroups')?.addEventListener('click', ()=>{ showArchivedGroups=!showArchivedGroups; render(); });
+    document.querySelectorAll('[data-archivegroup]').forEach(b=>b.addEventListener('click', e=>{
+      const g = (state.groups||[]).find(x=>x.id===e.target.dataset.archivegroup);
+      if(g){ g.archived = !g.archived; saveState(); render(); }
+    }));
+    document.querySelectorAll('[data-delgroup]').forEach(b=>b.addEventListener('click', e=>{
+      confirmAction('Delete this group? Field deliveries already logged keep their own snapshot, so past history is unaffected.', ()=>{
+        state.groups = (state.groups||[]).filter(x=>x.id!==e.target.dataset.delgroup);
         saveState(); render();
       });
     }));
@@ -957,7 +1222,11 @@ function writeBackRosterPens(pens, rationId){
     if(!p.rosterId) return;
     const rp = state.pens.find(x=>x.id===p.rosterId);
     if(!rp) return;
-    rp.headCount = p.headCount;
+    // a Ranch-Savvy-linked pen's roster count belongs to the sync, not to
+    // per-load edits -- the load itself still keeps whatever count was
+    // typed for it (a per-load snapshot), it just doesn't overwrite the
+    // roster's synced number
+    if(!rp.rsHerdId) rp.headCount = p.headCount;
     rp.lastAdjustPct = p.adjustPct;
     rp.lastRationId = rationId;
   });
@@ -1060,6 +1329,199 @@ function openEditPensSheet(loadId){
       renderLoadEntry(loadId);
     }
   });
+}
+
+/* ---- field delivery sheet: log/edit feed that skipped the mixer ---- */
+// A delivery is complete the moment it's saved -- no pending/done workflow
+// like mixer loads, because there's no ingredient-by-ingredient scale
+// entry happening in real time; you're recording what you just dropped.
+// Editing a past date's delivery works by navigating Today to that date.
+function openFieldDeliverySheet(existingFd){
+  const activeGroups = (state.groups||[]).filter(g=>!g.archived);
+  if(!existingFd && activeGroups.length===0){
+    showToast('Add a Group first (Roster tab)');
+    return;
+  }
+  if(state.ingredients.length===0){
+    showToast('Add an ingredient first (Settings tab)');
+    return;
+  }
+  const editing = !!existingFd;
+  let draft = editing
+    ? JSON.parse(JSON.stringify(existingFd))
+    : {
+        id: uid(),
+        groupId: activeGroups[0].id,
+        daysCovered: 1,
+        lines: [{id:uid(), ingredientId: state.ingredients[0].id, mode:'count', count:'', unitWeight:'', lbs:''}]
+      };
+  if(!draft.lines || draft.lines.length===0){
+    draft.lines = [{id:uid(), ingredientId: state.ingredients[0].id, mode:'count', count:'', unitWeight:'', lbs:''}];
+  }
+
+  // live group lookup for the preview; save() re-snapshots from the same place
+  function draftGroup(){
+    return groupById(draft.groupId)
+      || {name: draft.groupName||'(deleted group)', headCount: draft.headCount||0, targetRate: draft.targetRate||0};
+  }
+  function previewTotals(){
+    const g = draftGroup();
+    return fdTotals({
+      headCount: g.headCount, targetRate: g.targetRate,
+      daysCovered: draft.daysCovered, lines: draft.lines
+    });
+  }
+  function totalsLineHtml(){
+    const g = draftGroup();
+    const t = previewTotals();
+    const varTag = t.variancePct!==null
+      ? `<span class="variance-tag ${varianceClass(t.variancePct)}">${t.variancePct>0?'+':''}${fmt(t.variancePct)}%</span>` : '';
+    return `Target: <b>${fmt(t.target)} lb</b> (${g.headCount} hd &times; ${fmt(g.targetRate)} lb/hd/day &times; ${fmt(Number(draft.daysCovered)||1)} day${(Number(draft.daysCovered)||1)==1?'':'s'})<br>
+      Delivered: <b>${fmt(t.actual)} lb</b> ${varTag}${t.perHdDay!==null?` &middot; ${fmt(t.perHdDay)} lb/hd/day`:''}<br>
+      <span class="muted">~${fmt(t.dmActual)} lb DM delivered (info only &mdash; targets here are as-fed)</span>`;
+  }
+  function patchTotals(){
+    const el = document.getElementById('fdTotalsLine');
+    if(el) el.innerHTML = totalsLineHtml();
+  }
+
+  function lineRowsHtml(){
+    return draft.lines.map((l,idx)=>`
+      <div class="subcard">
+        <div class="row">
+          <select data-fding="${idx}" style="flex:1">
+            ${state.ingredients.map(ing=>`<option value="${ing.id}" ${ing.id===l.ingredientId?'selected':''}>${escapeHtml(ing.name)}</option>`).join('')}
+            <option value="__new__">➕ New ingredient...</option>
+          </select>
+          <button class="small-x" data-fdremove="${idx}">✕</button>
+        </div>
+        <div class="row" style="margin-top:6px;gap:8px">
+          <select data-fdmode="${idx}" style="flex:1">
+            <option value="count" ${l.mode==='count'?'selected':''}>Count &times; unit weight</option>
+            <option value="direct" ${l.mode==='direct'?'selected':''}>Direct lb estimate</option>
+          </select>
+        </div>
+        ${l.mode==='count' ? `
+        <div class="field-row" style="margin-top:6px">
+          <div><label>Count</label><input type="number" inputmode="decimal" data-fdcount="${idx}" value="${l.count??''}" placeholder="e.g. 3"></div>
+          <div><label>Est. unit weight (lb)</label><input type="number" inputmode="decimal" data-fdunit="${idx}" value="${l.unitWeight??''}" placeholder="e.g. 1250"></div>
+        </div>` : `
+        <div style="margin-top:6px"><label>Estimated lb</label><input type="number" inputmode="decimal" data-fdlbs="${idx}" value="${l.lbs??''}" placeholder="e.g. 300"></div>`}
+        <div class="muted" id="fdLineLbs-${idx}" style="margin-top:4px">= ${fmt(fdLineLbs(l))} lb</div>
+      </div>`).join('');
+  }
+  function patchLineLbs(idx){
+    const el = document.getElementById('fdLineLbs-'+idx);
+    if(el) el.textContent = '= '+fmt(fdLineLbs(draft.lines[idx]))+' lb';
+  }
+
+  function paintSheet(){
+    const groupOpts = activeGroups.map(g=>
+      `<option value="${g.id}" ${g.id===draft.groupId?'selected':''}>${escapeHtml(g.name)} (${g.headCount} hd &middot; ${fmt(g.targetRate)} lb/hd/day)</option>`
+    ).join('');
+    // an edited entry whose group was since deleted keeps working off its snapshot
+    const orphanOpt = (editing && !groupById(draft.groupId))
+      ? `<option value="${escapeHtml(draft.groupId)}" selected>${escapeHtml(draft.groupName||'(deleted group)')} (snapshot)</option>` : '';
+    const html = `
+    <div class="overlay" id="overlay">
+      <div class="sheet">
+        <div class="row"><h2>${editing?'Edit Field Delivery':'Field Delivery'}</h2><button class="x-close" id="closeSheet">✕</button></div>
+        <label>Group</label>
+        <select id="fdGroupSelect">${orphanOpt}${groupOpts}</select>
+        <label>Days this delivery covers</label>
+        <input type="number" inputmode="decimal" id="fdDays" min="0.5" step="0.5" value="${draft.daysCovered}">
+        <div class="muted" style="margin-top:4px">Typed on purpose, not guessed from timing &mdash; a bale drop meant to last 4 days gets judged against 4 days' worth of target.</div>
+        <label style="margin-top:12px">What was delivered</label>
+        <div id="fdLines">${lineRowsHtml()}</div>
+        <button class="link" id="fdAddLine" style="margin-top:4px">+ Add ingredient line</button>
+        <div class="muted" style="margin-top:12px" id="fdTotalsLine">${totalsLineHtml()}</div>
+        <div class="modal-actions">
+          <button class="btn ghost" id="fdCancel">Cancel</button>
+          <button class="btn" id="fdSave">${editing?'Save Changes':'Log Delivery'}</button>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('overlay')?.remove();
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    document.getElementById('closeSheet').onclick = closeSheetEl;
+    document.getElementById('fdCancel').onclick = closeSheetEl;
+    document.getElementById('fdGroupSelect').onchange = e=>{ draft.groupId = e.target.value; patchTotals(); };
+    document.getElementById('fdDays').oninput = e=>{ draft.daysCovered = e.target.value; patchTotals(); };
+    document.getElementById('fdAddLine').onclick = ()=>{
+      draft.lines.push({id:uid(), ingredientId: state.ingredients[0].id, mode:'count', count:'', unitWeight:'', lbs:''});
+      paintSheet();
+    };
+    document.querySelectorAll('[data-fdremove]').forEach(b=>b.addEventListener('click', e=>{
+      draft.lines.splice(Number(e.target.dataset.fdremove),1);
+      if(draft.lines.length===0) draft.lines.push({id:uid(), ingredientId: state.ingredients[0].id, mode:'count', count:'', unitWeight:'', lbs:''});
+      paintSheet();
+    }));
+    document.querySelectorAll('[data-fding]').forEach(sel=>sel.addEventListener('change', e=>{
+      const idx = Number(e.target.dataset.fding);
+      if(e.target.value==='__new__'){
+        const name = prompt('New ingredient name:');
+        if(name && name.trim()){
+          const newIng = {id:uid(), name:name.trim(), dmPct:guessDmPct(name.trim())};
+          state.ingredients.push(newIng);
+          draft.lines[idx].ingredientId = newIng.id;
+          saveState();
+        }
+        paintSheet();
+      } else {
+        draft.lines[idx].ingredientId = e.target.value;
+        patchLineLbs(idx); patchTotals();
+      }
+    }));
+    document.querySelectorAll('[data-fdmode]').forEach(sel=>sel.addEventListener('change', e=>{
+      const idx = Number(e.target.dataset.fdmode);
+      draft.lines[idx].mode = e.target.value;
+      paintSheet();
+    }));
+    const wireNum = (attr, field)=>{
+      document.querySelectorAll('['+attr+']').forEach(inp=>inp.addEventListener('input', e=>{
+        const idx = Number(e.target.dataset[field.ds]);
+        draft.lines[idx][field.key] = e.target.value;
+        patchLineLbs(idx); patchTotals();
+      }));
+    };
+    wireNum('data-fdcount', {ds:'fdcount', key:'count'});
+    wireNum('data-fdunit',  {ds:'fdunit',  key:'unitWeight'});
+    wireNum('data-fdlbs',   {ds:'fdlbs',   key:'lbs'});
+
+    document.getElementById('fdSave').onclick = ()=>{
+      const lines = (draft.lines||[]).map(l=>({
+        id: l.id||uid(),
+        ingredientId: l.ingredientId,
+        ingredientName: ingredientName(l.ingredientId), // snapshot at record time, like loads do
+        mode: l.mode,
+        count: l.mode==='count' ? (Number(l.count)||0) : null,
+        unitWeight: l.mode==='count' ? (Number(l.unitWeight)||0) : null,
+        lbs: l.mode==='direct' ? (Number(l.lbs)||0) : null
+      })).filter(l=> fdLineLbs(l)>0);
+      if(lines.length===0){ showToast('Enter at least one ingredient amount'); return; }
+      const g = groupById(draft.groupId);
+      const clean = {
+        id: draft.id,
+        groupId: draft.groupId,
+        groupName:  g ? g.name       : (draft.groupName||'(deleted group)'),
+        headCount:  g ? g.headCount  : (draft.headCount||0),
+        targetRate: g ? g.targetRate : (draft.targetRate||0),
+        daysCovered: Math.max(0.5, Number(draft.daysCovered)||1),
+        lines,
+        createdAt: draft.createdAt || new Date().toISOString()
+      };
+      const fc = getOrCreateFeedCall(currentDate);
+      fc.fieldDeliveries = fc.fieldDeliveries||[];
+      const i = fc.fieldDeliveries.findIndex(x=>x.id===clean.id);
+      if(i>=0) fc.fieldDeliveries[i]=clean; else fc.fieldDeliveries.push(clean);
+      saveState();
+      closeSheetEl();
+      showToast(editing?'Delivery updated':'Field delivery logged');
+      render();
+    };
+  }
+  paintSheet();
 }
 
 /* ================= LOAD ENTRY (fullscreen) ================= */
@@ -1262,11 +1724,24 @@ function patchLoadEntryUI(load){
   }
 }
 
-/* ================= PENS TAB (roster) ================= */
+/* ================= ROSTER TAB (pens + field groups) ================= */
 function renderPens(){
   const active = state.pens.filter(p=>!p.archived);
   const archived = state.pens.filter(p=>p.archived);
+  const activeGroups = (state.groups||[]).filter(g=>!g.archived);
+  const archivedGroups = (state.groups||[]).filter(g=>g.archived);
+  const rsCard = ranchSavvyConfigured() ? `
+  <div class="card">
+    <div class="row">
+      <div>
+        <div style="font-weight:700">Ranch Savvy</div>
+        <div class="muted">Herd counts pulled ${rsFetchedAtLabel()} &middot; read-only</div>
+      </div>
+      <button class="btn secondary small" id="rsRefreshBtn">Refresh</button>
+    </div>
+  </div>` : '';
   return `
+  ${rsCard}
   <button class="btn block" id="newPenBtn">+ New Pen</button>
   <div style="margin-top:12px">
     ${active.length===0 ? `<div class="empty">No pens saved yet.<br>Add each pen once with its head count, weight, and ADG &mdash; then pick it from a list every time you build a load instead of retyping.</div>` :
@@ -1276,7 +1751,44 @@ function renderPens(){
   <button class="link" id="toggleArchived" style="margin-top:16px">${showArchivedPens?'Hide':'Show'} archived pens (${archived.length})</button>
   <div style="margin-top:10px">${showArchivedPens ? archived.map(p=>renderPenCard(p)).join('') : ''}</div>
   ` : ''}
+
+  <hr style="margin:20px 0 14px">
+  <div style="font-weight:700;font-size:16px;margin-bottom:2px">Field Groups</div>
+  <div class="muted" style="margin-bottom:10px">For feed that skips the mixer &mdash; bale grazing, an unmetered feeder on stalks. Just a name, head count, and a flat as-fed lb/hd/day target; no weight or ADG tracking.</div>
+  <button class="btn secondary block" id="newGroupBtn">+ New Group</button>
+  <div style="margin-top:12px">
+    ${activeGroups.length===0 ? `<div class="muted" style="text-align:center;padding:10px">No groups yet.</div>` :
+      activeGroups.map(g=>renderGroupCard(g)).join('')}
+  </div>
+  ${archivedGroups.length ? `
+  <button class="link" id="toggleArchivedGroups" style="margin-top:12px">${showArchivedGroups?'Hide':'Show'} archived groups (${archivedGroups.length})</button>
+  <div style="margin-top:10px">${showArchivedGroups ? archivedGroups.map(g=>renderGroupCard(g)).join('') : ''}</div>
+  ` : ''}
   `;
+}
+
+function rsLinkLine(entry){
+  if(!entry.rsHerdId) return '';
+  if(rsLinkBroken(entry)){
+    return `<div class="muted text-warn" style="margin-top:4px">⟳ linked herd no longer in Ranch Savvy &mdash; count frozen at last pull</div>`;
+  }
+  const h = rsHerdById(entry.rsHerdId);
+  return `<div class="muted" style="margin-top:4px">⟳ head count synced from Ranch Savvy${h?`: ${escapeHtml(h.name)}`:''} (as of ${rsFetchedAtLabel()})</div>`;
+}
+
+function renderGroupCard(g){
+  return `
+  <div class="card" data-group="${g.id}">
+    <div style="font-weight:700">${escapeHtml(g.name)}${g.archived?' <span class="badge pending">Archived</span>':''}</div>
+    <div class="muted">${g.headCount} hd &middot; target ${fmt(g.targetRate)} lb as-fed/hd/day</div>
+    ${rsLinkLine(g)}
+    ${g.notes ? `<div class="muted" style="margin-top:4px;font-style:italic">${escapeHtml(g.notes)}</div>` : ''}
+    <div class="row" style="margin-top:10px;gap:6px">
+      <button class="btn secondary small" data-editgroup="${g.id}">Edit</button>
+      <button class="btn ghost small" data-archivegroup="${g.id}">${g.archived?'Unarchive':'Archive'}</button>
+      <button class="btn danger small" data-delgroup="${g.id}">Delete</button>
+    </div>
+  </div>`;
 }
 
 function renderPenCard(p){
@@ -1295,6 +1807,7 @@ function renderPenCard(p){
   <div class="card" data-pen="${p.id}">
     <div style="font-weight:700">${escapeHtml(p.penName)}${p.archived?' <span class="badge pending">Archived</span>':''}</div>
     <div class="muted">${p.headCount} hd &middot; ~${fmt(w)} lb today &middot; ADG ${fmt(p.adg)} lb/day</div>
+    ${rsLinkLine(p)}
     <div class="muted" style="margin-top:4px">${intakeLine}</div>
     ${ration ? `<div class="muted">Last ration: ${escapeHtml(ration.name)}</div>` : ''}
     ${p.notes ? `<div class="muted" style="margin-top:4px;font-style:italic">${escapeHtml(p.notes)}</div>` : ''}
@@ -1311,7 +1824,7 @@ function renderPenEditor(penId){
   let draft;
   if(isNew){
     draft = {id:uid(), penName:'', headCount:'', anchorWeight:'', anchorDate:todayStr(), adg:'',
-      intakeMode:'pctBW', intakeValue:'', lastRationId:null, lastAdjustPct:0, archived:false, notes:''};
+      intakeMode:'pctBW', intakeValue:'', lastRationId:null, lastAdjustPct:0, archived:false, notes:'', rsHerdId:null};
   } else {
     draft = JSON.parse(JSON.stringify(state.pens.find(p=>p.id===penId)));
   }
@@ -1345,7 +1858,14 @@ function renderPenEditor(penId){
         <label>Pen / Lot Name</label>
         <input type="text" id="penName" value="${escapeHtml(draft.penName)}" placeholder="e.g. Pen 4 - Steers">
         <label>Head Count</label>
-        <input type="number" inputmode="numeric" id="headCount" value="${draft.headCount}" placeholder="0">
+        <input type="number" inputmode="numeric" id="headCount" value="${draft.headCount}" placeholder="0" ${draft.rsHerdId?'disabled':''}>
+        ${ranchSavvyConfigured() ? `
+        <label>Link head count to Ranch Savvy herd</label>
+        ${rsLinkSelectHtml('rsLinkSelect', draft.rsHerdId)}
+        <div class="muted" style="margin-top:4px" id="rsLinkNote">${draft.rsHerdId
+          ? `Count comes from Ranch Savvy on every pull (last: ${rsFetchedAtLabel()}). Unlink to type it by hand.`
+          : `Linking keeps this count matched to the live active-animal count in Ranch Savvy. Read-only &mdash; nothing is ever written back.`}</div>
+        ` : ''}
       </div>
       <div class="card">
         <h2>Weight &amp; Gain</h2>
@@ -1381,6 +1901,14 @@ function renderPenEditor(penId){
     document.getElementById('backBtn').onclick = ()=>{ openPenEditId=null; render(); };
     document.getElementById('penName').oninput = e=> draft.penName = e.target.value;
     document.getElementById('headCount').oninput = e=> draft.headCount = e.target.value;
+    document.getElementById('rsLinkSelect')?.addEventListener('change', e=>{
+      draft.rsHerdId = e.target.value || null;
+      if(draft.rsHerdId){
+        const h = rsHerdById(draft.rsHerdId);
+        if(h) draft.headCount = h.active_count;
+      }
+      paint();
+    });
     document.getElementById('anchorWeight').oninput = e=>{ draft.anchorWeight = e.target.value; patchPreview(); };
     document.getElementById('anchorDate').onchange = e=>{ draft.anchorDate = e.target.value; patchPreview(); };
     document.getElementById('adg').oninput = e=>{ draft.adg = e.target.value; patchPreview(); };
@@ -1391,9 +1919,11 @@ function renderPenEditor(penId){
       const penName = (draft.penName||'').trim();
       const headCount = Number(draft.headCount)||0;
       if(!penName){ showToast('Give this pen a name'); return; }
-      if(!headCount || headCount<=0){ showToast('Enter a head count'); return; }
+      // a linked pen's count is whatever Ranch Savvy says -- even 0 (herd sold out) is valid
+      if(!draft.rsHerdId && (!headCount || headCount<=0)){ showToast('Enter a head count'); return; }
       const clean = {
         id: draft.id, penName, headCount,
+        rsHerdId: draft.rsHerdId||null,
         anchorWeight: Number(draft.anchorWeight)||0,
         anchorDate: draft.anchorDate || todayStr(),
         adg: Number(draft.adg)||0,
@@ -1412,6 +1942,95 @@ function renderPenEditor(penId){
       saveState();
       openPenEditId=null;
       showToast('Pen saved');
+      render();
+    };
+  }
+  paint();
+}
+
+/* ================= GROUP EDITOR (fullscreen) ================= */
+// Groups are the deliberately-lighter roster type: name, head count, and a
+// flat as-fed target rate. No anchor weight, no ADG, no intake modes --
+// bale grazing doesn't warrant growth-curve math. If a group ever needs
+// that, it belongs in the mixer workflow as a Pen instead.
+function renderGroupEditor(groupId){
+  const isNew = groupId==='new';
+  let draft;
+  if(isNew){
+    draft = {id:uid(), name:'', headCount:'', targetRate:'', rsHerdId:null, archived:false, notes:''};
+  } else {
+    const src = groupById(groupId);
+    if(!src){ openGroupEditId=null; render(); return; }
+    draft = JSON.parse(JSON.stringify(src));
+  }
+
+  function paint(){
+    document.getElementById('app').innerHTML = `
+    <div class="fs-header">
+      <button class="back" id="backBtn">←</button>
+      <div style="font-weight:700">${isNew?'New Group':'Edit Group'}</div>
+    </div>
+    <div class="fs-body">
+      <div class="card">
+        <label>Group Name</label>
+        <input type="text" id="groupName" value="${escapeHtml(draft.name)}" placeholder="e.g. Cows on North Stalks">
+        <label>Head Count</label>
+        <input type="number" inputmode="numeric" id="groupHead" value="${draft.headCount}" placeholder="0" ${draft.rsHerdId?'disabled':''}>
+        ${ranchSavvyConfigured() ? `
+        <label>Link head count to Ranch Savvy herd</label>
+        ${rsLinkSelectHtml('rsGroupLinkSelect', draft.rsHerdId)}
+        <div class="muted" style="margin-top:4px">${draft.rsHerdId
+          ? `Count comes from Ranch Savvy on every pull (last: ${rsFetchedAtLabel()}). Unlink to type it by hand.`
+          : `Linking keeps this count matched to the live active-animal count in Ranch Savvy. Read-only &mdash; nothing is ever written back.`}</div>
+        ` : ''}
+      </div>
+      <div class="card">
+        <label>Target Rate (lb as-fed/hd/day)</label>
+        <input type="number" inputmode="decimal" id="groupRate" value="${draft.targetRate}" placeholder="e.g. 28">
+        <div class="muted" style="margin-top:6px">A delivery's target is head count &times; this rate &times; the days it covers. As-fed basis &mdash; the same basis a bale weight or estimate is in.</div>
+      </div>
+      <div class="card">
+        <label>Notes (optional)</label>
+        <input type="text" id="groupNotes" value="${escapeHtml(draft.notes||'')}" placeholder="e.g. Huber east quarter, out ~Dec 15">
+      </div>
+      <button class="btn block" id="saveGroupBtn">${isNew?'Add Group':'Save Group'}</button>
+    </div>`;
+
+    document.getElementById('backBtn').onclick = ()=>{ openGroupEditId=null; render(); };
+    document.getElementById('groupName').oninput = e=> draft.name = e.target.value;
+    document.getElementById('groupHead').oninput = e=> draft.headCount = e.target.value;
+    document.getElementById('groupRate').oninput = e=> draft.targetRate = e.target.value;
+    document.getElementById('groupNotes').oninput = e=> draft.notes = e.target.value;
+    document.getElementById('rsGroupLinkSelect')?.addEventListener('change', e=>{
+      draft.rsHerdId = e.target.value || null;
+      if(draft.rsHerdId){
+        const h = rsHerdById(draft.rsHerdId);
+        if(h) draft.headCount = h.active_count;
+      }
+      paint();
+    });
+    document.getElementById('saveGroupBtn').onclick = ()=>{
+      const name = (draft.name||'').trim();
+      const headCount = Number(draft.headCount)||0;
+      const targetRate = Number(draft.targetRate)||0;
+      if(!name){ showToast('Give this group a name'); return; }
+      if(!draft.rsHerdId && (!headCount || headCount<=0)){ showToast('Enter a head count'); return; }
+      if(!targetRate || targetRate<=0){ showToast('Enter a target rate (lb/hd/day)'); return; }
+      const clean = {
+        id: draft.id, name, headCount, targetRate,
+        rsHerdId: draft.rsHerdId||null,
+        archived: draft.archived||false,
+        notes: (draft.notes||'').trim()
+      };
+      state.groups = state.groups||[];
+      if(isNew){ state.groups.push(clean); }
+      else{
+        const i = state.groups.findIndex(g=>g.id===draft.id);
+        state.groups[i] = clean;
+      }
+      saveState();
+      openGroupEditId=null;
+      showToast('Group saved');
       render();
     };
   }
@@ -1585,16 +2204,18 @@ function renderHistory(){
   let anyResults = false;
   const blocks = dates.map(fc=>{
     let loads = fc.loads;
+    let fds = fc.fieldDeliveries||[];
     if(filt){
       loads = loads.filter(l=>{
         const r = rationById(l.rationId);
         const penMatch = (l.pens||[]).some(p=>p.penName.toLowerCase().includes(filt));
         return penMatch || (r && r.name.toLowerCase().includes(filt));
       });
+      fds = fds.filter(fd=> (fd.groupName||'').toLowerCase().includes(filt));
     }
-    if(loads.length===0) return '';
+    if(loads.length===0 && fds.length===0) return '';
     anyResults = true;
-    return `<div class="hist-date">${displayDate(fc.date)}</div>` + loads.map(l=>{
+    return `<div class="hist-date">${displayDate(fc.date)}</div>` + fds.map(fd=>renderFdCard(fd,true)).join('') + loads.map(l=>{
       const ration = rationById(l.rationId);
       const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
       const penNames = (l.pens||[]).map(p=>escapeHtml(p.penName)).join(', ');
@@ -1640,6 +2261,14 @@ function exportCsv(){
           e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no'
         ]);
       });
+    });
+    (fc.fieldDeliveries||[]).forEach(fd=>{
+      const t = fdTotals(fd);
+      const rationCol = `Field delivery - covers ${fd.daysCovered} day${fd.daysCovered==1?'':'s'}`;
+      (fd.lines||[]).forEach(l=>{
+        rows.push([fc.date, fd.groupName, fd.headCount, rationCol, fdIngName(l), '', fdLineLbs(l), '', '', 'no']);
+      });
+      rows.push([fc.date, fd.groupName, fd.headCount, rationCol, '(delivery total)', t.target, t.actual, round1(t.actual-t.target), t.variancePct??'', 'no']);
     });
   });
   downloadCsv(rows, `rock-hills-feed-history-${todayStr()}.csv`);
@@ -1694,6 +2323,20 @@ function renderSettings(){
     <div class="muted" style="margin-top:8px">${pending.length} day${pending.length===1?'':'s'} still need${pending.length===1?'s':''} a report sent: ${pending.map(d=>displayDate(d)).join(', ')}.</div>
     ` : `<div class="muted" style="margin-top:8px">Every past day has a report on file.</div>`}
   </div>
+
+  ${ranchSavvyConfigured() ? `
+  <div class="card">
+    <h2>Ranch Savvy Sync</h2>
+    <p class="muted">Pens and Groups can link their head count to a Ranch Savvy herd (set the link when editing them on the Roster tab). Counts pull automatically when the app opens and can be refreshed by hand &mdash; read-only, one-way, cached. If Ranch Savvy is unreachable, everything keeps working off the last pulled numbers.</p>
+    <div class="row">
+      <div class="muted">Last pull: ${rsFetchedAtLabel()}${rsHerds().length?` &middot; ${rsHerds().length} herd${rsHerds().length===1?'':'s'}`:''}</div>
+      <button class="btn secondary small" id="rsRefreshSettingsBtn">Refresh</button>
+    </div>
+  </div>` : `
+  <div class="card">
+    <h2>Ranch Savvy Sync</h2>
+    <p class="muted">Not configured on this copy. To turn on the read-only herd-count pull, set RS_ANON_KEY and RS_APP_KEY near the top of this file and deploy get_herd_summary() to the Ranch Savvy Supabase project (see ranch-savvy-sync.sql in the repo). Until then the app runs fully standalone.</p>
+  </div>`}
 
   <div class="card">
     <h2>Variance Colors</h2>
@@ -1750,6 +2393,12 @@ function renderSettings(){
 }
 
 function wireSettingsEvents(){
+  document.getElementById('rsRefreshSettingsBtn')?.addEventListener('click', async e=>{
+    e.target.disabled = true; e.target.textContent = 'Refreshing...';
+    await refreshRanchSavvy(true);
+    const btn = document.getElementById('rsRefreshSettingsBtn');
+    if(btn){ btn.disabled = false; btn.textContent = 'Refresh'; }
+  });
   document.getElementById('reporterName').onchange = e=>{ state.settings.reporterName = e.target.value; saveState(); };
   document.getElementById('yellowPct').onchange = e=>{ state.settings.yellowPct = Number(e.target.value)||0; saveState(); };
   document.getElementById('redPct').onchange = e=>{ state.settings.redPct = Number(e.target.value)||0; saveState(); };
@@ -1857,6 +2506,16 @@ function migrateState(){
   state.pens = state.pens || [];
   state.rations = state.rations || [];
   state.settings = state.settings || {};
+  // Aug 2026 additions -- purely additive, so plain defaults (no version
+  // guard needed; guards below are only for shape TRANSFORMATIONS)
+  state.groups = state.groups || [];
+  state.ranchSavvy = state.ranchSavvy || {herds:[], fetchedAt:null};
+  state.pens.forEach(p=>{ if(p.rsHerdId===undefined) p.rsHerdId = null; });
+  state.groups.forEach(g=>{
+    if(g.rsHerdId===undefined) g.rsHerdId = null;
+    if(g.archived===undefined) g.archived = false;
+    if(g.notes===undefined) g.notes = '';
+  });
   if(state.settings.yellowPct===undefined) state.settings.yellowPct = 3;
   if(state.settings.redPct===undefined) state.settings.redPct = 6;
   if(state.settings.reporterName===undefined) state.settings.reporterName = '';
@@ -1880,6 +2539,7 @@ function migrateState(){
       delete fc.pens;
     }
     if(!fc.loads) fc.loads = [];
+    if(!fc.fieldDeliveries) fc.fieldDeliveries = [];
     fc.loads.forEach(load=>{
       if(!load.date) load.date = fc.date;
       if(!load.pens) load.pens = [];
@@ -1936,6 +2596,9 @@ function migrateState(){
 migrateState();
 saveState();
 render();
+// background pull on open -- fire-and-forget, cached, never blocks the UI;
+// refreshRanchSavvy() guards its own re-render against open editors
+if(ranchSavvyConfigured()) refreshRanchSavvy(false);
 </script>
 </body>
 </html>
