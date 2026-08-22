@@ -1,0 +1,1941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Rock Hills Feed Wagon</title>
+<style>
+  :root{
+    --green:#2e7d32; --green-bg:#e8f5e9;
+    --yellow:#b8860b; --yellow-bg:#fff8e1;
+    --red:#c62828; --red-bg:#fdecea;
+    --ink:#1c1c1c; --sub:#5f5f5f; --line:#dcdcdc;
+    --card:#ffffff; --bg:#f4f4f2; --accent:#3a5a40; --accent-dark:#274330;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    font-size:16px;}
+  #app{max-width:560px;margin:0 auto;padding:12px 12px 90px 12px;}
+  h1,h2,h3{margin:0 0 8px 0;}
+  h1{font-size:19px;}
+  h2{font-size:17px;}
+  .topbar{position:sticky;top:0;background:var(--accent);color:#fff;padding:12px 14px;
+    display:flex;align-items:center;justify-content:space-between;z-index:20;}
+  .topbar .title{font-weight:700;font-size:17px;}
+  .topbar .sub{font-size:12px;opacity:.85;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:12px;margin-bottom:10px;}
+  .subcard{background:#f8f8f6;border:1px solid var(--line);border-radius:8px;
+    padding:10px;margin-bottom:8px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    background:var(--accent);color:#fff;border:none;border-radius:8px;
+    padding:12px 16px;font-size:15px;font-weight:600;min-height:46px;cursor:pointer;}
+  .btn:active{background:var(--accent-dark);}
+  .btn.secondary{background:#fff;color:var(--accent);border:1.5px solid var(--accent);}
+  .btn.danger{background:#fff;color:var(--red);border:1.5px solid var(--red);}
+  .btn.ghost{background:transparent;color:var(--sub);border:1px solid var(--line);}
+  .btn.block{width:100%;}
+  .btn.small{padding:8px 10px;min-height:36px;font-size:13px;}
+  .btn[disabled]{opacity:.45;pointer-events:none;}
+  label{display:block;font-size:13px;color:var(--sub);margin:8px 0 4px;}
+  input[type=text],input[type=number],input[type=date],select,textarea{
+    width:100%;padding:11px 10px;font-size:16px;border:1px solid #bfbfbf;border-radius:8px;
+    background:#fff;color:var(--ink);}
+  input:focus,select:focus{outline:2px solid var(--accent);}
+  .field-row{display:flex;gap:8px;}
+  .field-row > div{flex:1;}
+  .pillbar{display:flex;gap:8px;margin-bottom:10px;}
+  .pill{flex:1;text-align:center;padding:6px 4px;border-radius:8px;font-size:13px;font-weight:600;}
+  .pill.pending{background:#eee;color:var(--sub);}
+  .pill.done{background:var(--green-bg);color:var(--green);}
+  .badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;text-transform:uppercase;
+    letter-spacing:.03em;}
+  .badge.pending{background:#e6e6e6;color:#555;}
+  .badge.done{background:var(--green-bg);color:var(--green);}
+  .muted{color:var(--sub);font-size:13px;}
+  .bignum{font-size:22px;font-weight:700;}
+  table.load{width:100%;border-collapse:collapse;font-size:14px;}
+  table.load th{text-align:left;font-size:11px;color:var(--sub);padding:4px 4px;border-bottom:1px solid var(--line);
+    text-transform:uppercase;letter-spacing:.03em;}
+  table.load td{padding:7px 4px;border-bottom:1px solid #eee;vertical-align:middle;}
+  table.load input[type=number]{padding:9px 4px;font-size:16px;width:100%;min-width:0;}
+  table.load td:nth-child(3){width:78px;}
+  .cum-target{font-size:22px;font-weight:800;color:var(--ink);margin-top:2px;line-height:1.15;}
+  .text-warn{color:var(--red);}
+  .variance-tag{display:inline-block;padding:2px 8px;border-radius:12px;font-weight:700;font-size:12px;}
+  .v-green{background:var(--green-bg);color:var(--green);}
+  .v-yellow{background:var(--yellow-bg);color:var(--yellow);}
+  .v-red{background:var(--red-bg);color:var(--red);}
+  .v-none{background:#eee;color:#888;}
+  .tabbar{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;
+    border-top:1px solid var(--line);z-index:30;padding-bottom:env(safe-area-inset-bottom);}
+  .tabbar button{flex:1;background:none;border:none;padding:9px 2px 8px;font-size:11px;
+    color:var(--sub);font-weight:600;cursor:pointer;}
+  .tabbar button.active{color:var(--accent);}
+  .tabbar button .ic{display:block;font-size:18px;margin-bottom:2px;}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40;
+    display:flex;align-items:flex-end;justify-content:center;}
+  .sheet{background:#fff;border-radius:14px 14px 0 0;padding:16px;width:100%;max-width:560px;
+    max-height:88vh;overflow-y:auto;}
+  .modal-actions{display:flex;gap:8px;margin-top:14px;}
+  .modal-actions .btn{flex:1;}
+  .x-close{background:none;border:none;font-size:20px;color:var(--sub);cursor:pointer;padding:4px 8px;}
+  .fullscreen{position:fixed;inset:0;background:var(--bg);z-index:35;overflow-y:auto;}
+  .fs-header{position:sticky;top:0;background:var(--accent);color:#fff;padding:12px 14px;
+    display:flex;align-items:center;gap:10px;z-index:5;}
+  .fs-header .back{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:2px 6px;}
+  .fs-body{padding:12px;padding-bottom:100px;max-width:560px;margin:0 auto;}
+  .empty{text-align:center;padding:30px 10px;color:var(--sub);}
+  .ing-row{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
+  .ing-row select,.ing-row input{flex:2;}
+  .ing-row .lbsw{flex:1;}
+  .ing-row .updown{display:flex;flex-direction:column;gap:2px;}
+  .updown button{background:#eee;border:none;border-radius:5px;width:26px;height:22px;font-size:11px;}
+  .link{color:var(--accent);font-weight:600;font-size:14px;cursor:pointer;background:none;border:none;padding:0;}
+  .toast{position:fixed;bottom:78px;left:50%;transform:translateX(-50%);background:#222;color:#fff;
+    padding:10px 18px;border-radius:20px;font-size:14px;z-index:60;opacity:0;transition:opacity .2s;}
+  .toast.show{opacity:1;}
+  .checkbox-row{display:flex;align-items:center;gap:6px;}
+  hr{border:none;border-top:1px solid var(--line);margin:12px 0;}
+  .hist-date{font-weight:700;font-size:14px;margin:14px 0 6px;color:var(--accent-dark);}
+  .small-x{background:none;border:none;color:var(--sub);font-size:16px;cursor:pointer;padding:2px 6px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <div class="title">🚜 Rock Hills Feed Wagon</div>
+    <div class="sub" id="topbarSub">offline &middot; saved on this phone</div>
+  </div>
+</div>
+
+<div id="app"></div>
+
+<div class="tabbar">
+  <button data-tab="today"><span class="ic">📋</span>Today</button>
+  <button data-tab="pens"><span class="ic">🐄</span>Pens</button>
+  <button data-tab="rations"><span class="ic">🧾</span>Rations</button>
+  <button data-tab="history"><span class="ic">📅</span>History</button>
+  <button data-tab="settings"><span class="ic">⚙️</span>Settings</button>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+/* ---------------- storage ---------------- */
+const STORAGE_KEY = 'rhr_feedwagon_v1';
+
+function uid(){
+  if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'id-'+Date.now()+'-'+Math.random().toString(16).slice(2);
+}
+
+/* ---------------- dry matter reference table ---------------- */
+// Typical textbook DM% for common feedstuffs -- used only to pre-fill a
+// starting point when an ingredient is created. These are generic averages,
+// NOT lab results. Correct them (Settings tab) to real numbers whenever you
+// have a feed test or known moisture, especially for silage/wet ingredients
+// where the difference between a guess and reality is large.
+const DM_GUESS_TABLE = [
+  [/wet\s*distill|wdgs|wet\s*ddg/i, 35],
+  [/distill|ddgs|\bdgs\b/i, 90],
+  [/corn\s*silage/i, 35],
+  [/silage/i, 35],
+  [/grass\s*hay|prairie\s*hay|meadow\s*hay/i, 88],
+  [/alfalfa/i, 88],
+  [/\bhay\b/i, 88],
+  [/straw/i, 90],
+  [/\bcorn\b/i, 87],
+  [/wheat/i, 88],
+  [/oats?/i, 89],
+  [/barley/i, 88],
+  [/\brye\b/i, 88],
+  [/sunflower/i, 92],
+  [/soybean\s*meal/i, 89],
+  [/soybean\s*hulls?/i, 91],
+  [/soybeans?/i, 90],
+  [/cottonseed\s*hulls?/i, 90],
+  [/gluten\s*feed/i, 90],
+  [/mineral/i, 95],
+  [/supplement|tub|block/i, 90],
+  [/cover\s*crop/i, 30]
+];
+function guessDmPct(name){
+  const n = name||'';
+  for(const [re, pct] of DM_GUESS_TABLE){ if(re.test(n)) return pct; }
+  return 100;
+}
+
+function defaultState(){
+  const cornSilage = {id: uid(), name:'Corn Silage', dmPct: guessDmPct('Corn Silage')};
+  const ddgs = {id: uid(), name:'DDGS', dmPct: guessDmPct('DDGS')};
+  const hay = {id: uid(), name:'Grass Hay', dmPct: guessDmPct('Grass Hay')};
+  const supp = {id: uid(), name:'Supplement', dmPct: guessDmPct('Supplement')};
+  return {
+    version:4,
+    settings:{ yellowPct:3, redPct:6, reporterName:'' },
+    ingredients:[cornSilage, ddgs, hay, supp],
+    rations:[{
+      id:uid(), name:'EXAMPLE - Backgrounding Ration (edit or delete me)',
+      referenceTotalAsFed: 48.4,
+      items:[
+        {ingredientId:cornSilage.id, pctAsFed:82.6},
+        {ingredientId:ddgs.id, pctAsFed:9.2},
+        {ingredientId:hay.id, pctAsFed:7.0},
+        {ingredientId:supp.id, pctAsFed:1.2}
+      ]
+    }],
+    pens: [],
+    feedCalls:[]
+  };
+}
+
+let state = loadState();
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed && parsed.ingredients) return parsed;
+    }
+  }catch(e){ console.warn('load failed', e); }
+  return defaultState();
+}
+function saveState(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch(e){ showToast('Save failed - storage full or blocked'); }
+}
+
+/* ---------------- helpers ---------------- */
+function round1(n){ return Math.round((n+Number.EPSILON)*10)/10; }
+function fmt(n){ if(n===null||n===undefined||isNaN(n)) return '-'; return round1(n).toLocaleString(); }
+function todayStr(){
+  const d = new Date();
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function displayDate(dstr){
+  const [y,m,d]=dstr.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  return dt.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric', year:'numeric'});
+}
+function ingredientName(id){
+  const ing = state.ingredients.find(i=>i.id===id);
+  return ing ? ing.name : '(deleted ingredient)';
+}
+function ingredientDmPct(id){
+  const ing = state.ingredients.find(i=>i.id===id);
+  return (ing && ing.dmPct!=null) ? ing.dmPct : 100;
+}
+function rationById(id){ return state.rations.find(r=>r.id===id); }
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+/* ---------------- daily report (local file / mailto -- no hosting, no accounts) ---------------- */
+// A day's "report" bundles every load logged that day plus a free-text
+// comments box, and leaves this phone two ways: a Save-to-Drive share (or a
+// plain file download if the native share sheet isn't available) and an
+// emailed draft. Both are manual, deliberate taps -- there's no server to
+// silently retry through, so fc.reportDriveAt / fc.reportEmailAt are just a
+// local checklist ("did I already do this today"), not a delivery receipt.
+// Since multiple phones each keep their own separate local data, whichever
+// phone generates the report is the one whose name (Settings tab) appears
+// in it -- that's the attribution, no shared backend needed for it.
+function reporterName(){
+  return (state.settings.reporterName||'').trim() || '(name not set - Settings tab)';
+}
+function feedCallHasLoads(fc){ return fc && fc.loads && fc.loads.length>0; }
+function pendingReportDates(){
+  const today = todayStr();
+  return state.feedCalls
+    .filter(fc=> fc.date < today && feedCallHasLoads(fc) && (!fc.reportDriveAt || !fc.reportEmailAt))
+    .map(fc=>fc.date)
+    .sort();
+}
+
+function buildDailyReportText(fc){
+  const lines = [];
+  lines.push(`Feed report - ${displayDate(fc.date)}`);
+  lines.push(`Logged by: ${reporterName()}`);
+  lines.push('');
+  fc.loads.forEach((l,i)=>{
+    const ration = rationById(l.rationId);
+    const rationLabel = l.rationName || (ration ? ration.name : '(ration deleted)');
+    const penNames = (l.pens||[]).map(p=>`${p.penName} (${p.headCount})`).join(', ');
+    const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
+    lines.push(`Load ${i+1}: ${penNames} - ${totalHead} hd total - ${rationLabel} [${l.status==='done'?'Done':(l.status==='in-progress'?'In Progress':'Pending')}]`);
+    (l.entries||[]).forEach(e=>{
+      const name = e.ingredientName || ingredientName(e.ingredientId);
+      if(e.skipped){
+        lines.push(`  ${name}: skipped`);
+      } else {
+        const actual = e.actualIncremental!=null ? `${fmt(e.actualIncremental)} lb` : 'not entered';
+        const varPct = e.variancePct!=null ? ` (${e.variancePct>0?'+':''}${fmt(e.variancePct)}%)` : '';
+        lines.push(`  ${name}: target ${fmt(e.targetIncremental)} lb / actual ${actual}${varPct}`);
+      }
+    });
+    lines.push(`  Load total: target ${fmt(l.totalTargetLbs)} lb / actual ${l.totalActualLbs!=null?fmt(l.totalActualLbs):'-'} lb`);
+    lines.push('');
+  });
+  const dayTarget = fc.loads.reduce((s,l)=>s+(l.totalTargetLbs||0),0);
+  const anyDayActual = fc.loads.some(l=>l.totalActualLbs!=null);
+  const dayActual = fc.loads.reduce((s,l)=> l.totalActualLbs!=null ? s+l.totalActualLbs : s, 0);
+  lines.push(`Day total target: ${fmt(dayTarget)} lb`);
+  lines.push(`Day total actual: ${anyDayActual?fmt(dayActual):'-'} lb`);
+  lines.push('');
+  lines.push('--- Comments ---');
+  lines.push((fc.comments||'').trim() || '(none)');
+  return lines.join('\n');
+}
+
+function buildDailyReportCsv(fc){
+  const rows = [['Date','Logged By','Load #','Pens','Total Head','Ration','Ingredient','Target lb','Actual lb','Variance lb','Variance %','Skipped']];
+  fc.loads.forEach((l,i)=>{
+    const ration = rationById(l.rationId);
+    const rationName = l.rationName || (ration ? ration.name : '');
+    const penNames = (l.pens||[]).map(p=>p.penName).join('; ');
+    const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
+    (l.entries||[]).forEach(e=>{
+      rows.push([
+        fc.date, reporterName(), i+1, penNames, totalHead, rationName,
+        e.ingredientName || ingredientName(e.ingredientId), e.targetIncremental,
+        e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no'
+      ]);
+    });
+  });
+  rows.push([]);
+  rows.push(['Comments', (fc.comments||'').trim() || '(none)']);
+  return rows.map(r=>r.map(csvEscape).join(',')).join('\n');
+}
+
+async function shareReportToDrive(fc){
+  const csv = buildDailyReportCsv(fc);
+  const filename = `feed-report-${fc.date}.csv`;
+  const file = new File([csv], filename, {type:'text/csv'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({files:[file], title:`Feed report ${fc.date}`});
+      fc.reportDriveAt = new Date().toISOString();
+      saveState();
+      showToast('Shared - pick Drive to save it there');
+      render();
+      return;
+    }catch(e){
+      if(e && e.name==='AbortError') return; // person cancelled the share sheet -- not a failure, don't mark or nag
+      // fall through to plain download below
+    }
+  }
+  downloadTextFile(csv, filename, 'text/csv'); // csv is already a fully-formed, escaped string -- write it as-is
+  fc.reportDriveAt = new Date().toISOString();
+  saveState();
+  showToast('Downloaded - upload it to Drive from your Files app');
+  render();
+}
+
+function emailReport(fc){
+  let text = buildDailyReportText(fc);
+  const MAX = 1800; // mailto body length is unreliable much past this across mail apps
+  if(text.length > MAX) text = text.slice(0, MAX) + '\n\n[report truncated for email -- full detail in the Drive copy]';
+  const subject = `Feed report - ${fc.date}`;
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  fc.reportEmailAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+/* variance color */
+function varianceClass(pct){
+  if(pct===null||pct===undefined) return 'v-none';
+  const a = Math.abs(pct);
+  if(a<=state.settings.yellowPct) return 'v-green';
+  if(a<=state.settings.redPct) return 'v-yellow';
+  return 'v-red';
+}
+
+/* ---------------- pen weight / intake projection ---------------- */
+// A roster pen (or a load's snapshot of one) carries: anchorWeight (lb/hd
+// as of anchorDate), adg (lb/hd/day), and an intake target expressed either
+// as %BW (auto-grows with projected weight) or a flat lb DM/hd/day number.
+// All numeric reads are defensively coerced with Number() because draft
+// objects mid-edit hold raw string values from input fields.
+function daysBetween(dateA, dateB){
+  const [ay,am,ad] = dateA.split('-').map(Number);
+  const [by,bm,bd] = dateB.split('-').map(Number);
+  const a = Date.UTC(ay,am-1,ad), b = Date.UTC(by,bm-1,bd);
+  return Math.round((b-a)/86400000);
+}
+function projectedWeight(pen, dateStr){
+  const anchorWeight = Number(pen.anchorWeight)||0;
+  const adg = Number(pen.adg)||0;
+  if(!pen.anchorDate) return round1(anchorWeight);
+  const days = daysBetween(pen.anchorDate, dateStr);
+  return round1(anchorWeight + adg*days);
+}
+function targetDMIPerHead(pen, dateStr){
+  const intakeValue = Number(pen.intakeValue)||0;
+  if(pen.intakeMode==='flatDM') return round1(intakeValue);
+  if(pen.intakeMode==='pctBW') return round1(projectedWeight(pen,dateStr) * intakeValue/100);
+  return null; // 'rationAsIs' -- no DM targeting, ration's own numbers are used directly
+}
+
+/* ---------------- load math ---------------- */
+// A "load" is one mixer batch. It can cover more than one pen (combined
+// because they share a ration) -- load.pens is an array of pen entries.
+// Ration items are now a RECIPE: each ingredient is a % of the total mix,
+// as-fed basis (should sum to ~100%, but math below normalizes by whatever
+// the percentages actually add up to, so a slightly-off total still works).
+// rationWeightedDmFraction() gives the mix's blended DM fraction (0-1),
+// derived from each ingredient's % share and its own DM%. For a pen with a
+// DM intake target (flat or %BW-of-projected-weight), that blended fraction
+// converts the pen's target lb DM/hd/day into a total lb AS-FED/hd/day for
+// the whole mix, which is then split across ingredients by their % share.
+// A pen using 'rationAsIs' skips DM targeting entirely and instead scales
+// off the ration's own referenceTotalAsFed (lb as-fed/hd/day) -- the one
+// absolute number a recipe-style ration carries, needed because % alone
+// has no scale.
+function rationWeightedDmFraction(ration){
+  const items = ration ? (ration.items||[]) : [];
+  const totalPct = items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
+  if(totalPct<=0) return 1;
+  let dmWeighted = 0;
+  items.forEach(it=>{
+    const dmPct = ingredientDmPct(it.ingredientId);
+    dmWeighted += (Number(it.pctAsFed)||0) * (dmPct/100);
+  });
+  return dmWeighted/totalPct;
+}
+function buildTargets(load){
+  const ration = rationById(load.rationId);
+  const items = ration ? (ration.items||[]) : [];
+  const totalPct = items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
+  const dmFraction = rationWeightedDmFraction(ration);
+  const referenceTotalAsFed = ration ? (Number(ration.referenceTotalAsFed)||0) : 0;
+  const existingByIng = {};
+  (load.entries||[]).forEach(e=>existingByIng[e.ingredientId]=e);
+  const newEntries = items.map(it=>{
+    const pctFrac = totalPct>0 ? (Number(it.pctAsFed)||0)/totalPct : 0;
+    const targetIncremental = round1((load.pens||[]).reduce((sum,p)=>{
+      const mult = 1 + ((p.adjustPct||0)/100);
+      let totalAsFedForPen;
+      if(!p.intakeMode || p.intakeMode==='rationAsIs'){
+        totalAsFedForPen = referenceTotalAsFed * (p.headCount||0) * mult;
+      } else {
+        const dmi = targetDMIPerHead(p, load.date) * mult;
+        const totalAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
+        totalAsFedForPen = totalAsFedPerHead * (p.headCount||0);
+      }
+      return sum + totalAsFedForPen * pctFrac;
+    }, 0));
+    const prior = existingByIng[it.ingredientId] || {};
+    return {
+      ingredientId: it.ingredientId,
+      targetIncremental,
+      targetCumulative: 0, // set below in recomputeActuals, which owns the cumulative rebasing
+      actualCumulative: prior.actualCumulative ?? null,
+      skipped: prior.skipped || false
+    };
+  });
+  load.entries = newEntries;
+  recomputeActuals(load);
+}
+
+function recomputeActuals(load){
+  // basis is wherever the scale actually reads right now -- the last
+  // entered actual reading, or the plan's own running total if nothing's
+  // been entered yet for this stretch. Each entry's displayed cum target
+  // is rebased off THIS, not off the original plan, so if you over- or
+  // undershoot one ingredient, every target after it corrects for it.
+  let basis = load.startingWeight || 0;
+  let totalTarget = 0, totalActual = 0, anyActual=false;
+  load.entries.forEach(e=>{
+    totalTarget += e.skipped ? 0 : e.targetIncremental;
+    if(e.skipped){
+      // Nothing added, so the scale target doesn't move -- carry basis through.
+      e.targetCumulative = round1(basis);
+      e.actualIncremental = 0;
+      e.variance = null; e.variancePct = null;
+      return;
+    }
+    e.targetCumulative = round1(basis + e.targetIncremental);
+    if(e.actualCumulative===null || e.actualCumulative===undefined || e.actualCumulative===''){
+      e.actualIncremental = null; e.variance=null; e.variancePct=null;
+      basis = e.targetCumulative; // no actual yet -- coast the plan forward
+    } else {
+      const ac = Number(e.actualCumulative);
+      e.actualIncremental = round1(ac - basis);
+      e.variance = round1(e.actualIncremental - e.targetIncremental);
+      e.variancePct = e.targetIncremental !== 0
+        ? round1((e.variance/e.targetIncremental)*100)
+        : (e.actualIncremental !== 0 ? 100 : 0);
+      basis = ac; // rebase everything after this off the real reading
+      totalActual += e.actualIncremental;
+      anyActual = true;
+    }
+  });
+  load.totalTargetLbs = round1(totalTarget);
+  load.totalActualLbs = anyActual ? round1(totalActual) : null;
+  load.overallVariancePct = (anyActual && totalTarget!==0) ? round1(((totalActual-totalTarget)/totalTarget)*100) : null;
+  const allFilled = load.entries.every(e=> e.skipped || (e.actualCumulative!==null && e.actualCumulative!==undefined && e.actualCumulative!==''));
+  load.status = allFilled && load.entries.length>0 ? 'done' : (anyActual ? 'in-progress' : 'pending');
+}
+
+// Estimated per-pen split of a combined load. We can't know exactly which
+// pen got which pounds once ingredients are mixed together, so actuals are
+// allocated proportionally to each pen's share of the ration target.
+// Every pen in a load eats the same mix, so each pen's fraction of the
+// full-ration targets is also its fraction of the skip-adjusted actual mix;
+// shares are taken pen-vs-pen (summing to exactly 1) and then scaled by the
+// load's real totals, so skipped ingredients shrink every pen's numbers
+// proportionally instead of inflating the allocation past the load total.
+function loadPenBreakdown(load){
+  const ration = rationById(load.rationId);
+  const dmFraction = rationWeightedDmFraction(ration);
+  const referenceTotalAsFed = ration ? (Number(ration.referenceTotalAsFed)||0) : 0;
+  const fullTargets = (load.pens||[]).map(p=>{
+    const mult = 1 + ((p.adjustPct||0)/100);
+    if(!p.intakeMode || p.intakeMode==='rationAsIs'){
+      return referenceTotalAsFed * (p.headCount||0) * mult;
+    }
+    const dmi = targetDMIPerHead(p, load.date) * mult;
+    const totalAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
+    return totalAsFedPerHead * (p.headCount||0);
+  });
+  const fullSum = fullTargets.reduce((s,v)=>s+v,0);
+  return (load.pens||[]).map((p,i)=>{
+    const share = fullSum>0 ? fullTargets[i]/fullSum : 0;
+    const targetTotal = round1((load.totalTargetLbs||0) * share);
+    const actualTotal = (load.totalActualLbs!==null && load.totalActualLbs!==undefined) ? round1(load.totalActualLbs*share) : null;
+    const variancePct = (actualTotal!==null && targetTotal!==0) ? round1(((actualTotal-targetTotal)/targetTotal)*100) : null;
+    const projectedWeightToday = (p.intakeMode==='pctBW') ? projectedWeight(p, load.date) : null;
+    const targetDMIToday = (p.intakeMode && p.intakeMode!=='rationAsIs') ? targetDMIPerHead(p, load.date) : null;
+    return {...p, targetTotal, actualTotal, variancePct, projectedWeightToday, targetDMIToday};
+  });
+}
+
+/* ---------------- routing / render ---------------- */
+let currentTab = 'today';
+let currentDate = todayStr();
+let lastKnownToday = todayStr();
+let openLoadId = null; // when set, load-entry fullscreen is showing
+let openRationId = null; // when set, ration editor fullscreen is showing ('new' for new)
+let openPenEditId = null; // when set, pen roster editor fullscreen is showing ('new' for new)
+let historyFilter = '';
+let showArchivedPens = false;
+
+// Android keeps installed web apps suspended in memory for days. Without
+// this, an app resumed the next morning still treats yesterday as "today":
+// new loads get logged under the wrong date and the pending-report banner
+// never appears. On return to foreground, if the calendar day has rolled
+// over, snap the Today view forward -- but never while an editor is open
+// mid-entry (a load being entered at 11:58pm correctly belongs to the day
+// it was started).
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState!=='visible') return;
+  const now = todayStr();
+  if(now===lastKnownToday) return;
+  const wasViewingToday = currentDate===lastKnownToday;
+  lastKnownToday = now;
+  if(openLoadId||openRationId||openPenEditId) return;
+  if(wasViewingToday || currentTab==='today'){ currentDate = now; }
+  render();
+});
+
+function setTab(t){ currentTab=t; openLoadId=null; openRationId=null; openPenEditId=null; render(); }
+
+document.querySelectorAll('.tabbar button').forEach(b=>{
+  b.addEventListener('click', ()=> setTab(b.dataset.tab));
+});
+
+function render(){
+  document.querySelectorAll('.tabbar button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tab===currentTab);
+  });
+  const app = document.getElementById('app');
+  if(openLoadId){ app.innerHTML=''; renderLoadEntry(openLoadId); return; }
+  if(openRationId){ app.innerHTML=''; renderRationEditor(openRationId); return; }
+  if(openPenEditId){ app.innerHTML=''; renderPenEditor(openPenEditId); return; }
+  if(currentTab==='today') app.innerHTML = renderToday();
+  else if(currentTab==='pens') app.innerHTML = renderPens();
+  else if(currentTab==='rations') app.innerHTML = renderRations();
+  else if(currentTab==='history') app.innerHTML = renderHistory();
+  else if(currentTab==='settings') app.innerHTML = renderSettings();
+  wireTabEvents();
+}
+
+/* ================= TODAY TAB ================= */
+function getOrCreateFeedCall(dateStr){
+  let fc = state.feedCalls.find(f=>f.date===dateStr);
+  if(!fc){ fc = {id:uid(), date:dateStr, loads:[]}; state.feedCalls.push(fc); }
+  return fc;
+}
+
+function renderToday(){
+  const fc = state.feedCalls.find(f=>f.date===currentDate);
+  const loads = fc ? fc.loads : [];
+  let totalTarget = loads.reduce((s,l)=>s+(l.totalTargetLbs||0),0);
+  let totalActual = loads.reduce((s,l)=> l.totalActualLbs!==null && l.totalActualLbs!==undefined ? s+l.totalActualLbs : s,0);
+
+  const pending = pendingReportDates();
+  const showBanner = currentDate===todayStr() && pending.length>0;
+  const banner = showBanner ? `
+  <div class="card" style="border-color:var(--yellow);background:var(--yellow-bg)" data-jumpdate="${pending[0]}" id="pendingReportBanner">
+    <b>${pending.length} earlier day${pending.length===1?'':'s'} still need${pending.length===1?'s':''} a report sent.</b>
+    <div class="muted" style="margin-top:4px">Tap to jump to ${displayDate(pending[0])}${pending.length>1?' (oldest first)':''}.</div>
+  </div>` : '';
+
+  const reportCard = feedCallHasLoads(fc) ? `
+  <div class="card">
+    <h2>Daily Report</h2>
+    <label>Comments for this day's report (optional)</label>
+    <textarea id="reportComments" rows="3" placeholder="e.g. scale reading off on the DDGS auger, short on hay">${escapeHtml(fc.comments||'')}</textarea>
+    <div class="field-row" style="margin-top:10px">
+      <button class="btn ${fc.reportDriveAt?'ghost':'secondary'} block" id="saveToDriveBtn">${fc.reportDriveAt?'✅ Saved to Drive':'Save to Drive'}</button>
+      <button class="btn ${fc.reportEmailAt?'ghost':'secondary'} block" id="emailReportBtn">${fc.reportEmailAt?'✅ Emailed':'Email Report'}</button>
+    </div>
+  </div>` : '';
+
+  const prevFc = findPreviousFeedCall(currentDate);
+  const repeatCard = prevFc ? `
+  <div class="card">
+    <div class="muted" style="font-weight:700;margin-bottom:6px">Repeat from ${displayDate(prevFc.date)}</div>
+    ${prevFc.loads.map(l=>{
+      const ration = rationById(l.rationId);
+      const penNames = (l.pens||[]).map(p=>p.penName).join(', ');
+      return `
+      <div class="row" style="padding:6px 0;border-bottom:1px solid #eee">
+        <div>
+          <div>${escapeHtml(penNames)}</div>
+          <div class="muted">${ration?escapeHtml(ration.name):(l.rationName?escapeHtml(l.rationName):'(ration deleted)')}</div>
+        </div>
+        <button class="btn secondary small" data-repeatload="${l.id}" data-repeatdate="${prevFc.date}">Copy to Today &rarr;</button>
+      </div>`;
+    }).join('')}
+  </div>` : '';
+
+  return `
+  ${banner}
+  <div class="card">
+    <div class="row">
+      <button class="link" id="prevDay">◀ prev</button>
+      <div style="text-align:center">
+        <div style="font-weight:700">${displayDate(currentDate)}</div>
+        <input type="date" id="datePicker" value="${currentDate}" style="margin-top:6px;">
+      </div>
+      <button class="link" id="nextDay">next ▶</button>
+    </div>
+  </div>
+
+  ${loads.length ? `<div class="card row">
+      <div><div class="muted">Day total target</div><div class="bignum">${fmt(totalTarget)} lb</div></div>
+      <div><div class="muted">Day total actual</div><div class="bignum">${totalActual? fmt(totalActual):'-'} lb</div></div>
+    </div>` : ''}
+
+  <button class="btn block" id="addLoadBtn">+ Add Load to Today's Feed Call</button>
+  ${repeatCard}
+
+  <div style="margin-top:12px">
+    ${loads.length===0 ? `<div class="empty">No loads added for this date yet.<br>Tap "Add Load" and pick pens from your roster &mdash; combine several into one load if they share a ration.</div>` :
+      loads.map(l=>renderLoadCard(l)).join('')}
+  </div>
+
+  ${reportCard}
+  `;
+}
+
+function renderLoadCard(load){
+  const ration = rationById(load.rationId);
+  const totalHead = (load.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
+  const penNames = (load.pens||[]).map(p=>`${escapeHtml(p.penName)} (${p.headCount})`).join(', ');
+  const statusLabel = load.status==='done' ? 'Done' : (load.status==='in-progress'?'In Progress':'Pending');
+  const badgeClass = load.status==='done' ? 'done' : 'pending';
+  const varTag = load.overallVariancePct!==null ? `<span class="variance-tag ${varianceClass(load.overallVariancePct)}">${load.overallVariancePct>0?'+':''}${fmt(load.overallVariancePct)}%</span>` : '';
+  return `
+  <div class="card" data-load="${load.id}">
+    <div class="row">
+      <div>
+        <div style="font-weight:700">${penNames}</div>
+        <div class="muted">${totalHead} hd total &middot; ${ration ? escapeHtml(ration.name) : '(ration deleted)'}</div>
+      </div>
+      <button class="small-x" data-delload="${load.id}">✕</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="muted">Target: <b>${fmt(load.totalTargetLbs)} lb</b>${load.totalActualLbs!==null?` &nbsp;Actual: <b>${fmt(load.totalActualLbs)} lb</b> ${varTag}`:''}</div>
+      <span class="badge ${badgeClass}">${statusLabel}</span>
+    </div>
+    <button class="btn secondary block" style="margin-top:8px" data-openload="${load.id}">${load.status==='done'?'Review Load':'Enter Load →'}</button>
+  </div>`;
+}
+
+function wireTabEvents(){
+  if(currentTab==='today'){
+    document.getElementById('prevDay')?.addEventListener('click', ()=>{ shiftDate(-1); });
+    document.getElementById('nextDay')?.addEventListener('click', ()=>{ shiftDate(1); });
+    document.getElementById('datePicker')?.addEventListener('change', e=>{ currentDate = e.target.value; render(); });
+    document.getElementById('addLoadBtn')?.addEventListener('click', openAddLoadSheet);
+    document.querySelectorAll('[data-repeatload]').forEach(b=>b.addEventListener('click', e=>{
+      const sourceDate = e.currentTarget.dataset.repeatdate;
+      const prevFc = state.feedCalls.find(f=>f.date===sourceDate);
+      const sourceLoad = prevFc && prevFc.loads.find(l=>l.id===e.currentTarget.dataset.repeatload);
+      if(sourceLoad) openRepeatLoadSheet(sourceLoad, sourceDate);
+    }));
+    document.querySelectorAll('[data-openload]').forEach(b=>b.addEventListener('click', ()=>{
+      openLoadId = b.dataset.openload; render();
+    }));
+    document.querySelectorAll('[data-delload]').forEach(b=>b.addEventListener('click', ()=>{
+      confirmAction("Remove this load from today's feed call? This deletes its entered data too.", ()=>{
+        const fc = state.feedCalls.find(f=>f.date===currentDate);
+        fc.loads = fc.loads.filter(l=>l.id!==b.dataset.delload);
+        saveState(); render();
+      });
+    }));
+    document.getElementById('pendingReportBanner')?.addEventListener('click', e=>{
+      currentDate = e.currentTarget.dataset.jumpdate; render();
+    });
+    document.getElementById('reportComments')?.addEventListener('change', e=>{
+      const fc = state.feedCalls.find(f=>f.date===currentDate);
+      if(fc){ fc.comments = e.target.value; saveState(); }
+    });
+    // Buttons snapshot the textarea's LIVE value first: relying on the change
+    // event alone loses a just-typed comment if the tap lands before blur fires.
+    const snapshotComments = ()=>{
+      const fc = state.feedCalls.find(f=>f.date===currentDate);
+      const box = document.getElementById('reportComments');
+      if(fc && box){ fc.comments = box.value; saveState(); }
+      return fc;
+    };
+    document.getElementById('saveToDriveBtn')?.addEventListener('click', ()=>{
+      const fc = snapshotComments();
+      if(fc) shareReportToDrive(fc);
+    });
+    document.getElementById('emailReportBtn')?.addEventListener('click', ()=>{
+      const fc = snapshotComments();
+      if(fc) emailReport(fc);
+    });
+  }
+  if(currentTab==='pens'){
+    document.getElementById('newPenBtn')?.addEventListener('click', ()=>{ openPenEditId='new'; render(); });
+    document.querySelectorAll('[data-editpen]').forEach(b=>b.addEventListener('click', ()=>{ openPenEditId=b.dataset.editpen; render(); }));
+    document.getElementById('toggleArchived')?.addEventListener('click', ()=>{ showArchivedPens=!showArchivedPens; render(); });
+    document.querySelectorAll('[data-archivepen]').forEach(b=>b.addEventListener('click', e=>{
+      const p = state.pens.find(x=>x.id===e.target.dataset.archivepen);
+      if(p){ p.archived = !p.archived; saveState(); render(); }
+    }));
+    document.querySelectorAll('[data-delpen]').forEach(b=>b.addEventListener('click', e=>{
+      confirmAction('Delete this pen from your roster? Loads already built from it keep their own snapshot, so past history is unaffected.', ()=>{
+        state.pens = state.pens.filter(x=>x.id!==e.target.dataset.delpen);
+        saveState(); render();
+      });
+    }));
+  }
+  if(currentTab==='rations'){
+    document.getElementById('newRationBtn')?.addEventListener('click', ()=>{ openRationId='new'; render(); });
+    document.querySelectorAll('[data-editration]').forEach(b=>b.addEventListener('click', ()=>{ openRationId=b.dataset.editration; render(); }));
+    document.querySelectorAll('[data-delration]').forEach(b=>b.addEventListener('click', ()=>{
+      confirmAction('Delete this ration? Past history using it is unaffected.', ()=>{
+        state.rations = state.rations.filter(r=>r.id!==b.dataset.delration);
+        saveState(); render();
+      });
+    }));
+    document.querySelectorAll('[data-dupration]').forEach(b=>b.addEventListener('click', ()=>{
+      const r = rationById(b.dataset.dupration);
+      const copy = JSON.parse(JSON.stringify(r));
+      copy.id = uid(); copy.name = r.name + ' (copy)';
+      state.rations.push(copy); saveState(); render();
+    }));
+  }
+  if(currentTab==='history'){
+    document.getElementById('histFilter')?.addEventListener('input', e=>{ historyFilter=e.target.value; render(); });
+    document.getElementById('exportCsvBtn')?.addEventListener('click', exportCsv);
+    document.getElementById('exportPenCsvBtn')?.addEventListener('click', exportPenSummaryCsv);
+    document.querySelectorAll('[data-viewload]').forEach(b=>b.addEventListener('click', ()=>{
+      openLoadId = b.dataset.viewload; render();
+    }));
+  }
+  if(currentTab==='settings'){
+    wireSettingsEvents();
+  }
+}
+
+function shiftDate(delta){
+  const [y,m,d]=currentDate.split('-').map(Number);
+  const dt = new Date(y,m-1,d);
+  dt.setDate(dt.getDate()+delta);
+  currentDate = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  render();
+}
+
+/* ---- shared pens editor sheet: used for "Add Load" and "Edit Pens" ---- */
+// opts: {title, confirmLabel, forDate, initialRationId, initialStartWeight, initialPens, onSave(rationId,startWeight,pens)}
+// Each draft row has source:'roster'|'oneoff'. Roster rows are picked from
+// the saved pen list (name/weight/ADG/intake locked to the roster, only
+// head count & call adjustment are editable per-load); one-off rows are
+// typed fresh and never saved to the roster.
+function openPensSheet(opts){
+  if(state.rations.length===0){
+    showToast('Add a ration first (Rations tab)');
+    return;
+  }
+  const forDate = opts.forDate || currentDate;
+  let draftPens = (opts.initialPens||[]).map(p=>{
+    if(p.rosterId){
+      const rp = state.pens.find(x=>x.id===p.rosterId);
+      return {
+        source:'roster', rosterId:p.rosterId, id:p.id,
+        penName: rp?rp.penName:p.penName,
+        headCount: p.headCount, adjustPct: p.adjustPct,
+        anchorWeight: rp?rp.anchorWeight:p.anchorWeight,
+        anchorDate: rp?rp.anchorDate:p.anchorDate,
+        adg: rp?rp.adg:p.adg,
+        intakeMode: rp?rp.intakeMode:p.intakeMode,
+        intakeValue: rp?rp.intakeValue:p.intakeValue
+      };
+    }
+    return {source:'oneoff', rosterId:null, id:p.id, penName:p.penName, headCount:p.headCount, adjustPct:p.adjustPct,
+      anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0};
+  });
+  let rationId = opts.initialRationId || state.rations[0].id;
+  let startWeight = opts.initialStartWeight ?? 0;
+
+  function rosterInfoLine(p){
+    if(p.source!=='roster') return 'One-off pen &mdash; not saved to your roster';
+    if(!p.intakeMode || p.intakeMode==='rationAsIs') return 'Uses ration as entered (no DM targeting)';
+    if(p.intakeMode==='flatDM') return `Flat target: ${fmt(p.intakeValue)} lb DM/hd/day`;
+    const w = projectedWeight(p, forDate);
+    const dmi = targetDMIPerHead(p, forDate);
+    return `~${fmt(w)} lb today &middot; ${p.intakeValue}% BW = ${fmt(dmi)} lb DM/hd target`;
+  }
+
+  function penRowsHtml(){
+    return draftPens.map((p,idx)=>`
+      <div class="subcard">
+        <div class="row">
+          <div style="font-weight:700">${p.source==='roster'?escapeHtml(p.penName):'One-off pen'}</div>
+          <button class="small-x" data-removepenrow="${idx}">✕</button>
+        </div>
+        <div class="muted" style="margin-bottom:4px">${rosterInfoLine(p)}</div>
+        ${p.source==='oneoff' ? `
+        <label>Pen / Lot Name</label>
+        <input type="text" data-penname="${idx}" value="${escapeHtml(p.penName||'')}" placeholder="e.g. Pen 4 - Steers">` : ''}
+        <div class="field-row">
+          <div><label>Head Count</label><input type="number" inputmode="numeric" min="1" data-penhead="${idx}" value="${p.headCount||''}" placeholder="0"></div>
+          <div><label>Call Adj %</label><input type="number" inputmode="decimal" data-penadj="${idx}" value="${p.adjustPct||0}" placeholder="0"></div>
+        </div>
+      </div>`).join('');
+  }
+
+  function patchPenSheetTotal(){
+    const el = document.getElementById('penSheetTotalHead');
+    if(!el) return;
+    const totalHead = draftPens.reduce((s,p)=>s+(Number(p.headCount)||0),0);
+    el.textContent = `${totalHead} hd total across ${draftPens.length} pen${draftPens.length===1?'':'s'}`;
+  }
+
+  function addPenOptionsHtml(){
+    const usedRosterIds = new Set(draftPens.filter(p=>p.rosterId).map(p=>p.rosterId));
+    const available = state.pens.filter(rp=>!rp.archived && !usedRosterIds.has(rp.id));
+    return `
+    <option value="">Add a pen to this load...</option>
+    ${available.map(rp=>`<option value="${rp.id}">${escapeHtml(rp.penName)} (${rp.headCount} hd)</option>`).join('')}
+    <option value="__oneoff__">➕ One-off pen (not saved to roster)</option>`;
+  }
+
+  function paintSheet(){
+    const totalHead = draftPens.reduce((s,p)=>s+(Number(p.headCount)||0),0);
+    const html = `
+    <div class="overlay" id="overlay">
+      <div class="sheet">
+        <div class="row"><h2>${escapeHtml(opts.title)}</h2><button class="x-close" id="closeSheet">✕</button></div>
+        <label>Ration (shared by every pen in this load)</label>
+        <select id="rationSelect">
+          ${state.rations.map(r=>`<option value="${r.id}" ${r.id===rationId?'selected':''}>${escapeHtml(r.name)}</option>`).join('')}
+        </select>
+        <div id="penRows" style="margin-top:10px">${penRowsHtml()}</div>
+        <label style="margin-top:4px">Add a pen</label>
+        <select id="addPenSelect">${addPenOptionsHtml()}</select>
+        <label style="margin-top:12px">Starting Scale Weight (lb) &mdash; leave 0 if you zero the scale</label>
+        <input type="number" id="startWeightField" inputmode="decimal" value="${startWeight}">
+        <div class="muted" style="margin-top:8px" id="penSheetTotalHead">${totalHead} hd total across ${draftPens.length} pen${draftPens.length===1?'':'s'}</div>
+        <div class="modal-actions">
+          <button class="btn ghost" id="cancelAdd">Cancel</button>
+          <button class="btn" id="confirmAdd">${escapeHtml(opts.confirmLabel||'Save')}</button>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('overlay')?.remove();
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    document.getElementById('closeSheet').onclick = closeSheetEl;
+    document.getElementById('cancelAdd').onclick = closeSheetEl;
+    document.getElementById('rationSelect').onchange = e=>{ rationId = e.target.value; };
+    document.getElementById('startWeightField').oninput = e=>{ startWeight = Number(e.target.value)||0; };
+    document.getElementById('addPenSelect').onchange = e=>{
+      const val = e.target.value;
+      if(!val) return;
+      if(val==='__oneoff__'){
+        draftPens.push({source:'oneoff', rosterId:null, penName:'', headCount:'', adjustPct:0,
+          anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0});
+      } else {
+        const rp = state.pens.find(x=>x.id===val);
+        if(rp){
+          if(draftPens.length===0 && rp.lastRationId && state.rations.some(r=>r.id===rp.lastRationId)){
+            rationId = rp.lastRationId;
+          }
+          draftPens.push({source:'roster', rosterId:rp.id, penName:rp.penName,
+            headCount:rp.headCount, adjustPct:rp.lastAdjustPct||0,
+            anchorWeight:rp.anchorWeight, anchorDate:rp.anchorDate, adg:rp.adg,
+            intakeMode:rp.intakeMode, intakeValue:rp.intakeValue});
+        }
+      }
+      paintSheet();
+    };
+    document.querySelectorAll('[data-removepenrow]').forEach(b=>b.addEventListener('click', e=>{
+      draftPens.splice(Number(e.target.dataset.removepenrow),1);
+      paintSheet();
+    }));
+    document.querySelectorAll('[data-penname]').forEach(inp=>inp.addEventListener('input', e=>{
+      draftPens[Number(e.target.dataset.penname)].penName = e.target.value;
+    }));
+    document.querySelectorAll('[data-penhead]').forEach(inp=>inp.addEventListener('input', e=>{
+      draftPens[Number(e.target.dataset.penhead)].headCount = e.target.value;
+      patchPenSheetTotal();
+    }));
+    document.querySelectorAll('[data-penadj]').forEach(inp=>inp.addEventListener('input', e=>{
+      draftPens[Number(e.target.dataset.penadj)].adjustPct = e.target.value;
+    }));
+    document.getElementById('confirmAdd').onclick = ()=>{
+      const cleanPens = [];
+      draftPens.forEach(p=>{
+        const headCount = Number(p.headCount)||0;
+        const adjustPct = Number(p.adjustPct)||0;
+        if(!headCount) return;
+        if(p.source==='roster'){
+          const rp = state.pens.find(x=>x.id===p.rosterId);
+          cleanPens.push({
+            id: p.id||uid(), rosterId: p.rosterId,
+            penName: rp?rp.penName:p.penName, headCount, adjustPct,
+            anchorWeight: rp?rp.anchorWeight:p.anchorWeight,
+            anchorDate: rp?rp.anchorDate:p.anchorDate,
+            adg: rp?rp.adg:p.adg,
+            intakeMode: rp?rp.intakeMode:p.intakeMode,
+            intakeValue: rp?rp.intakeValue:p.intakeValue
+          });
+        } else {
+          const penName = (p.penName||'').trim();
+          if(!penName) return;
+          cleanPens.push({
+            id: p.id||uid(), rosterId: null, penName, headCount, adjustPct,
+            anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0
+          });
+        }
+      });
+      if(cleanPens.length===0){ showToast('Add at least one pen with a head count'); return; }
+      const chosenRation = rationById(rationId);
+      const refTotal = chosenRation ? (Number(chosenRation.referenceTotalAsFed)||0) : 0;
+      if(refTotal<=0 && cleanPens.some(p=>!p.intakeMode || p.intakeMode==='rationAsIs')){
+        showToast('Heads up: this ration has no reference total, so "ration as entered" pens get 0 lb targets');
+      }
+      closeSheetEl();
+      opts.onSave(rationId, startWeight, cleanPens);
+    };
+  }
+  paintSheet();
+}
+function closeSheetEl(){ document.getElementById('overlay')?.remove(); }
+
+// Roster pens keep the head count / call adjustment / last-used ration they
+// were fed with, so next time you build a load you're not retyping them.
+function writeBackRosterPens(pens, rationId){
+  pens.forEach(p=>{
+    if(!p.rosterId) return;
+    const rp = state.pens.find(x=>x.id===p.rosterId);
+    if(!rp) return;
+    rp.headCount = p.headCount;
+    rp.lastAdjustPct = p.adjustPct;
+    rp.lastRationId = rationId;
+  });
+}
+
+function openAddLoadSheet(){
+  openPensSheet({
+    title: "Add Load to Today's Feed Call",
+    confirmLabel: 'Add Load',
+    forDate: currentDate,
+    initialRationId: state.rations[0]?.id,
+    initialStartWeight: 0,
+    initialPens: [],
+    onSave(rationId, startWeight, pens){
+      const fc = getOrCreateFeedCall(currentDate);
+      const load = {id:uid(), date:currentDate, rationId, startingWeight:startWeight, pens, entries:[], status:'pending'};
+      buildTargets(load);
+      fc.loads.push(load);
+      writeBackRosterPens(pens, rationId);
+      saveState();
+      showToast(pens.length>1 ? `Load added (${pens.length} pens combined)` : 'Load added');
+      render();
+    }
+  });
+}
+
+// Most days repeat the prior day's loads almost as-is, just a little heavier
+// on ADG. Weight-gain math needs no special handling here -- it falls out
+// automatically: pen intake targets are computed from each pen's LIVE
+// anchorWeight/ADG at load-build time (see targetDMIPerHead/projectedWeight),
+// so simply building a new load dated today already reflects however much
+// the animals have grown since the roster's anchor date. What this actually
+// saves is re-picking the same pens and ration by hand every morning.
+function findPreviousFeedCall(beforeDate){
+  const priors = state.feedCalls.filter(fc=> fc.date<beforeDate && fc.loads && fc.loads.length>0);
+  if(priors.length===0) return null;
+  priors.sort((a,b)=> b.date.localeCompare(a.date));
+  return priors[0];
+}
+function openRepeatLoadSheet(sourceLoad, sourceDate){
+  const initialPens = (sourceLoad.pens||[]).map(p=>{
+    if(p.rosterId){
+      const rp = state.pens.find(x=>x.id===p.rosterId);
+      return {
+        id: uid(), rosterId: p.rosterId,
+        penName: rp?rp.penName:p.penName,
+        headCount: rp?rp.headCount:p.headCount, // refreshed from the roster, not copied from yesterday -- surfaces any add/remove for review
+        adjustPct: 0, // call adjustment resets -- it's meant to reflect TODAY's conditions (cold snap, didn't clean up), not carry forward automatically
+        anchorWeight: rp?rp.anchorWeight:p.anchorWeight,
+        anchorDate: rp?rp.anchorDate:p.anchorDate,
+        adg: rp?rp.adg:p.adg,
+        intakeMode: rp?rp.intakeMode:p.intakeMode,
+        intakeValue: rp?rp.intakeValue:p.intakeValue
+      };
+    }
+    return {
+      id: uid(), rosterId: null, penName: p.penName, headCount: p.headCount, adjustPct: 0,
+      anchorWeight: null, anchorDate: null, adg: 0, intakeMode: 'rationAsIs', intakeValue: 0
+    };
+  });
+  openPensSheet({
+    title: `Repeat Load from ${displayDate(sourceDate)}`,
+    confirmLabel: 'Add Load',
+    forDate: currentDate,
+    initialRationId: sourceLoad.rationId,
+    initialStartWeight: 0,
+    initialPens,
+    onSave(rationId, startWeight, pens){
+      const fc = getOrCreateFeedCall(currentDate);
+      const load = {id:uid(), date:currentDate, rationId, startingWeight:startWeight, pens, entries:[], status:'pending'};
+      buildTargets(load);
+      fc.loads.push(load);
+      writeBackRosterPens(pens, rationId);
+      saveState();
+      showToast(pens.length>1 ? `Load added (${pens.length} pens combined)` : 'Load added');
+      render();
+    }
+  });
+}
+
+function openEditPensSheet(loadId){
+  const found = findLoad(loadId);
+  if(!found) return;
+  const {load} = found;
+  openPensSheet({
+    title: 'Edit Pens in this Load',
+    confirmLabel: 'Save Changes',
+    forDate: load.date,
+    initialRationId: load.rationId,
+    initialStartWeight: load.startingWeight,
+    initialPens: load.pens,
+    onSave(rationId, startWeight, pens){
+      load.rationId = rationId;
+      load.startingWeight = startWeight;
+      load.pens = pens;
+      buildTargets(load); // keeps already-entered scale readings, recalculates targets
+      writeBackRosterPens(pens, rationId);
+      saveState();
+      showToast('Load updated');
+      renderLoadEntry(loadId);
+    }
+  });
+}
+
+/* ================= LOAD ENTRY (fullscreen) ================= */
+function findLoad(loadId){
+  for(const fc of state.feedCalls){
+    const l = fc.loads.find(x=>x.id===loadId);
+    if(l) return {fc,load:l};
+  }
+  return null;
+}
+
+function renderLoadEntry(loadId){
+  const found = findLoad(loadId);
+  if(!found){ openLoadId=null; render(); return; }
+  const {fc,load} = found;
+  const ration = rationById(load.rationId);
+  const totalHead = (load.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
+
+  const rows = load.entries.map((e,idx)=>{
+    const varTag = e.variancePct!==null && !e.skipped
+      ? `<span class="variance-tag ${varianceClass(e.variancePct)}">${e.variancePct>0?'+':''}${fmt(e.variancePct)}%</span>`
+      : (e.skipped ? `<span class="variance-tag v-none">skip</span>` : `<span class="variance-tag v-none">-</span>`);
+    return `
+    <tr id="row-${idx}">
+      <td>
+        <div style="font-weight:600">${escapeHtml(ingredientName(e.ingredientId))}</div>
+        <div class="checkbox-row muted"><input type="checkbox" id="skipCb-${idx}" data-skip="${idx}" ${e.skipped?'checked':''}> not fed today</div>
+      </td>
+      <td id="targetCell-${idx}"><div class="muted">${fmt(e.targetIncremental)} lb</div><div class="cum-target">cum ${fmt(e.targetCumulative)}</div></td>
+      <td>
+        <input type="number" inputmode="decimal" id="actualInput-${idx}" data-actual="${idx}" placeholder="0" value="${e.actualCumulative!==null&&e.actualCumulative!==undefined?e.actualCumulative:''}" ${e.skipped?'disabled':''}>
+      </td>
+      <td id="varCell-${idx}">${e.skipped ? '-' : fmt(e.actualIncremental)}<div>${varTag}</div></td>
+    </tr>`;
+  }).join('');
+
+  const penListHtml = (load.pens||[]).map(p=>{
+    let info = '';
+    if(p.intakeMode==='pctBW'){
+      const w = projectedWeight(p, load.date);
+      const dmi = targetDMIPerHead(p, load.date);
+      info = `~${fmt(w)} lb &middot; ${p.intakeValue}% BW = ${fmt(dmi)} lb DM/hd`;
+    } else if(p.intakeMode==='flatDM'){
+      info = `flat ${fmt(p.intakeValue)} lb DM/hd`;
+    }
+    return `
+    <div class="row" style="padding:3px 0;align-items:flex-start">
+      <div>${escapeHtml(p.penName)}</div>
+      <div class="muted" style="text-align:right">${p.headCount} hd${p.adjustPct?`, call ${p.adjustPct>0?'+':''}${p.adjustPct}%`:''}${info?`<br>${info}`:''}</div>
+    </div>`;
+  }).join('');
+
+  const breakdown = load.pens && load.pens.length>1 ? loadPenBreakdown(load) : null;
+
+  const html = `
+  <div class="fs-header">
+    <button class="back" id="backBtn">←</button>
+    <div>
+      <div style="font-weight:700">${ration?escapeHtml(ration.name):'(ration deleted)'}</div>
+      <div class="sub">${totalHead} hd total &middot; ${displayDate(fc.date)}</div>
+    </div>
+  </div>
+  <div class="fs-body">
+    <div class="card">
+      <div class="row">
+        <div class="muted" style="font-weight:700">Pens in this load</div>
+        ${load.status!=='done' ? `<button class="btn ghost small" id="editPensBtn">Edit Pens</button>` : ''}
+      </div>
+      <div style="margin-top:4px">${penListHtml}</div>
+    </div>
+    <div class="card">
+      <label>Starting Scale Weight (lb)</label>
+      <input type="number" inputmode="decimal" id="startWeightEdit" value="${load.startingWeight}">
+      <div class="muted" style="margin-top:6px">Enter the scale reading (cumulative) after adding each ingredient. The app works out the actual pounds added and compares it to target.</div>
+    </div>
+    <div class="card">
+      <table class="load">
+        <thead><tr><th>Ingredient</th><th>Target lb</th><th>Actual scale reading</th><th>Actual / Var</th></tr></thead>
+        <tbody id="loadRows">${rows}</tbody>
+      </table>
+    </div>
+    <div class="card row">
+      <div>
+        <div class="muted">Target total</div>
+        <div class="bignum" id="totalTargetVal">${fmt(load.totalTargetLbs)} lb</div>
+      </div>
+      <div>
+        <div class="muted">Actual total</div>
+        <div class="bignum" id="totalActualVal">${load.totalActualLbs!==null?fmt(load.totalActualLbs):'-'} lb</div>
+      </div>
+      <div>
+        <div class="muted">Load variance</div>
+        <div class="bignum" id="totalVarVal">${load.overallVariancePct!==null?(load.overallVariancePct>0?'+':'')+fmt(load.overallVariancePct)+'%':'-'}</div>
+      </div>
+    </div>
+    ${breakdown ? `
+    <div class="card" id="penBreakdownCard">
+      <h2>Per-Pen Split (estimated)</h2>
+      <div class="muted" style="margin-bottom:6px">Allocated by each pen's share of the ration target &mdash; there's no way to measure exactly which pen got what once it's mixed together in one load.</div>
+      <div id="penBreakdownRows">${breakdown.map(p=>`
+        <div class="row" style="padding:4px 0">
+          <div>${escapeHtml(p.penName)} <span class="muted">(${p.headCount} hd)</span></div>
+          <div><b>${p.actualTotal!==null?fmt(p.actualTotal):fmt(p.targetTotal)} lb</b>${p.actualTotal===null?' <span class="muted">target</span>':(p.variancePct!==null?` <span class="variance-tag ${varianceClass(p.variancePct)}">${p.variancePct>0?'+':''}${fmt(p.variancePct)}%</span>`:'')}</div>
+        </div>`).join('')}
+      </div>
+    </div>` : ''}
+    <button class="btn block" id="doneBtn">${load.status==='done'?'Load Marked Done ✓':'Mark Load Done'}</button>
+  </div>`;
+  document.getElementById('app').innerHTML = html;
+
+  document.getElementById('backBtn').onclick = ()=>{ openLoadId=null; render(); };
+  document.getElementById('editPensBtn')?.addEventListener('click', ()=> openEditPensSheet(loadId));
+  // NOTE: none of the handlers below tear down / re-render the row markup while the
+  // user could be mid-tap into another field. Full innerHTML replacement here would
+  // detach the very input the user's next tap is landing on and silently eat the tap
+  // (confirmed with automated testing) -- so all live updates patch existing DOM nodes
+  // in place via patchLoadEntryUI() instead of calling renderLoadEntry() again.
+  document.getElementById('startWeightEdit').onchange = (e)=>{
+    load.startingWeight = Number(e.target.value)||0;
+    buildTargets(load); saveState();
+    patchLoadEntryUI(load);
+  };
+  document.querySelectorAll('[data-skip]').forEach(cb=>cb.addEventListener('change', e=>{
+    const idx = Number(e.target.dataset.skip);
+    load.entries[idx].skipped = e.target.checked;
+    // toggling skip shifts the cumulative target for every row after this one,
+    // so rebuild targets (not just recompute actuals).
+    buildTargets(load); saveState();
+    patchLoadEntryUI(load);
+    const inputEl = document.getElementById('actualInput-'+idx);
+    if(inputEl) inputEl.disabled = e.target.checked;
+  }));
+  document.querySelectorAll('[data-actual]').forEach((inp,i)=>{
+    inp.addEventListener('input', e=>{
+      const idx = Number(e.target.dataset.actual);
+      const v = e.target.value;
+      load.entries[idx].actualCumulative = v===''? null : Number(v);
+      recomputeActuals(load); saveState();
+      patchLoadEntryUI(load);
+    });
+    inp.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){
+        e.preventDefault();
+        const allInputs = Array.from(document.querySelectorAll('[data-actual]'));
+        const next = allInputs[i+1];
+        if(next) next.focus(); else e.target.blur();
+      }
+    });
+  });
+  document.getElementById('doneBtn').onclick = ()=>{
+    const unfilled = load.entries.some(e=>!e.skipped && (e.actualCumulative===null||e.actualCumulative===undefined||e.actualCumulative===''));
+    // Snapshot names now, at the moment of record -- so this load stays
+    // accurate even if the ration or an ingredient is later renamed/deleted,
+    // and the daily report is self-contained without needing live lookups.
+    const markDone = ()=>{
+      load.status='done'; load.completedAt=new Date().toISOString();
+      load.rationName = ration ? ration.name : '(ration deleted)';
+      load.entries.forEach(e=>{ e.ingredientName = ingredientName(e.ingredientId); });
+      saveState();
+    };
+    if(unfilled){
+      confirmAction("Some ingredients don't have an actual weight entered yet. Mark done anyway?", ()=>{
+        markDone();
+        showToast('Load saved');
+        renderLoadEntry(loadId);
+      });
+      return;
+    }
+    markDone();
+    showToast('Load saved');
+    openLoadId=null; render();
+  };
+}
+
+// Patches the numbers on screen after an edit, without replacing any input
+// element -- safe to call from 'input'/'change' handlers mid-interaction.
+function patchLoadEntryUI(load){
+  load.entries.forEach((e,idx)=>{
+    const targetCell = document.getElementById('targetCell-'+idx);
+    if(targetCell) targetCell.innerHTML = `<div class="muted">${fmt(e.targetIncremental)} lb</div><div class="cum-target">cum ${fmt(e.targetCumulative)}</div>`;
+    const varCell = document.getElementById('varCell-'+idx);
+    if(varCell){
+      const varTag = e.variancePct!==null && !e.skipped
+        ? `<span class="variance-tag ${varianceClass(e.variancePct)}">${e.variancePct>0?'+':''}${fmt(e.variancePct)}%</span>`
+        : (e.skipped ? `<span class="variance-tag v-none">skip</span>` : `<span class="variance-tag v-none">-</span>`);
+      varCell.innerHTML = `${e.skipped ? '-' : fmt(e.actualIncremental)}<div>${varTag}</div>`;
+    }
+  });
+  const tt = document.getElementById('totalTargetVal'); if(tt) tt.textContent = fmt(load.totalTargetLbs)+' lb';
+  const ta = document.getElementById('totalActualVal'); if(ta) ta.textContent = (load.totalActualLbs!==null?fmt(load.totalActualLbs):'-')+' lb';
+  const tv = document.getElementById('totalVarVal'); if(tv) tv.textContent = load.overallVariancePct!==null?(load.overallVariancePct>0?'+':'')+fmt(load.overallVariancePct)+'%':'-';
+  const breakdownRows = document.getElementById('penBreakdownRows');
+  if(breakdownRows && load.pens && load.pens.length>1){
+    const breakdown = loadPenBreakdown(load);
+    breakdownRows.innerHTML = breakdown.map(p=>`
+      <div class="row" style="padding:4px 0">
+        <div>${escapeHtml(p.penName)} <span class="muted">(${p.headCount} hd)</span></div>
+        <div><b>${p.actualTotal!==null?fmt(p.actualTotal):fmt(p.targetTotal)} lb</b>${p.actualTotal===null?' <span class="muted">target</span>':(p.variancePct!==null?` <span class="variance-tag ${varianceClass(p.variancePct)}">${p.variancePct>0?'+':''}${fmt(p.variancePct)}%</span>`:'')}</div>
+      </div>`).join('');
+  }
+}
+
+/* ================= PENS TAB (roster) ================= */
+function renderPens(){
+  const active = state.pens.filter(p=>!p.archived);
+  const archived = state.pens.filter(p=>p.archived);
+  return `
+  <button class="btn block" id="newPenBtn">+ New Pen</button>
+  <div style="margin-top:12px">
+    ${active.length===0 ? `<div class="empty">No pens saved yet.<br>Add each pen once with its head count, weight, and ADG &mdash; then pick it from a list every time you build a load instead of retyping.</div>` :
+      active.map(p=>renderPenCard(p)).join('')}
+  </div>
+  ${archived.length ? `
+  <button class="link" id="toggleArchived" style="margin-top:16px">${showArchivedPens?'Hide':'Show'} archived pens (${archived.length})</button>
+  <div style="margin-top:10px">${showArchivedPens ? archived.map(p=>renderPenCard(p)).join('') : ''}</div>
+  ` : ''}
+  `;
+}
+
+function renderPenCard(p){
+  const w = projectedWeight(p, todayStr());
+  let intakeLine;
+  if(p.intakeMode==='pctBW'){
+    const dmi = targetDMIPerHead(p, todayStr());
+    intakeLine = `${p.intakeValue}% BW &rarr; ~${fmt(dmi)} lb DM/hd today`;
+  } else if(p.intakeMode==='flatDM'){
+    intakeLine = `Flat ${fmt(p.intakeValue)} lb DM/hd/day`;
+  } else {
+    intakeLine = `Uses ration as entered (no DM targeting)`;
+  }
+  const ration = p.lastRationId ? rationById(p.lastRationId) : null;
+  return `
+  <div class="card" data-pen="${p.id}">
+    <div style="font-weight:700">${escapeHtml(p.penName)}${p.archived?' <span class="badge pending">Archived</span>':''}</div>
+    <div class="muted">${p.headCount} hd &middot; ~${fmt(w)} lb today &middot; ADG ${fmt(p.adg)} lb/day</div>
+    <div class="muted" style="margin-top:4px">${intakeLine}</div>
+    ${ration ? `<div class="muted">Last ration: ${escapeHtml(ration.name)}</div>` : ''}
+    ${p.notes ? `<div class="muted" style="margin-top:4px;font-style:italic">${escapeHtml(p.notes)}</div>` : ''}
+    <div class="row" style="margin-top:10px;gap:6px">
+      <button class="btn secondary small" data-editpen="${p.id}">Edit</button>
+      <button class="btn ghost small" data-archivepen="${p.id}">${p.archived?'Unarchive':'Archive'}</button>
+      <button class="btn danger small" data-delpen="${p.id}">Delete</button>
+    </div>
+  </div>`;
+}
+
+function renderPenEditor(penId){
+  const isNew = penId==='new';
+  let draft;
+  if(isNew){
+    draft = {id:uid(), penName:'', headCount:'', anchorWeight:'', anchorDate:todayStr(), adg:'',
+      intakeMode:'pctBW', intakeValue:'', lastRationId:null, lastAdjustPct:0, archived:false, notes:''};
+  } else {
+    draft = JSON.parse(JSON.stringify(state.pens.find(p=>p.id===penId)));
+  }
+
+  function previewLine(){
+    if(draft.intakeMode==='rationAsIs') return "No DM targeting &mdash; the ration's own lb DM/hd/day numbers are used directly, scaled only by head count and call adjustment.";
+    if(draft.intakeMode==='flatDM'){
+      if(!draft.intakeValue) return 'Enter a flat lb DM/hd/day target.';
+      return `Flat target: ${fmt(Number(draft.intakeValue)||0)} lb DM/hd/day &mdash; doesn't change with weight.`;
+    }
+    // pctBW
+    if(!draft.anchorWeight) return "Enter a weight to see today's target.";
+    if(!draft.intakeValue) return "Enter a % of body weight to see today's target.";
+    const w = projectedWeight(draft, todayStr());
+    const dmi = targetDMIPerHead(draft, todayStr());
+    return `Today: ~${fmt(w)} lb bodyweight &middot; ${draft.intakeValue}% BW = ${fmt(dmi)} lb DM/hd target`;
+  }
+  function patchPreview(){
+    const el = document.getElementById('penPreviewLine');
+    if(el) el.innerHTML = previewLine();
+  }
+
+  function paint(){
+    document.getElementById('app').innerHTML = `
+    <div class="fs-header">
+      <button class="back" id="backBtn">←</button>
+      <div style="font-weight:700">${isNew?'New Pen':'Edit Pen'}</div>
+    </div>
+    <div class="fs-body">
+      <div class="card">
+        <label>Pen / Lot Name</label>
+        <input type="text" id="penName" value="${escapeHtml(draft.penName)}" placeholder="e.g. Pen 4 - Steers">
+        <label>Head Count</label>
+        <input type="number" inputmode="numeric" id="headCount" value="${draft.headCount}" placeholder="0">
+      </div>
+      <div class="card">
+        <h2>Weight &amp; Gain</h2>
+        <div class="field-row">
+          <div><label>Weight (lb/hd)</label><input type="number" inputmode="decimal" id="anchorWeight" value="${draft.anchorWeight}" placeholder="0"></div>
+          <div><label>As of Date</label><input type="date" id="anchorDate" value="${draft.anchorDate}"></div>
+        </div>
+        <label>ADG (lb/hd/day)</label>
+        <input type="number" inputmode="decimal" id="adg" value="${draft.adg}" placeholder="0">
+        <div class="muted" style="margin-top:6px">Weight projects forward from here using ADG. When you get a new actual weight, update these two fields and set the date to today &mdash; everything downstream recalculates.</div>
+      </div>
+      <div class="card">
+        <h2>Daily Intake Target</h2>
+        <label>Mode</label>
+        <select id="intakeMode">
+          <option value="pctBW" ${draft.intakeMode==='pctBW'?'selected':''}>% of Body Weight (auto-adjusts with ADG)</option>
+          <option value="flatDM" ${draft.intakeMode==='flatDM'?'selected':''}>Flat lb DM/hd/day</option>
+          <option value="rationAsIs" ${draft.intakeMode==='rationAsIs'?'selected':''}>Use ration as entered (no DM targeting)</option>
+        </select>
+        <div id="intakeValueWrap" style="${draft.intakeMode==='rationAsIs'?'display:none':''}">
+          <label id="intakeValueLabel">${draft.intakeMode==='flatDM'?'lb DM/hd/day':'% of Body Weight'}</label>
+          <input type="number" inputmode="decimal" id="intakeValue" value="${draft.intakeValue}" placeholder="${draft.intakeMode==='flatDM'?'e.g. 24':'e.g. 2.4'}">
+        </div>
+        <div class="muted" style="margin-top:8px" id="penPreviewLine">${previewLine()}</div>
+      </div>
+      <div class="card">
+        <label>Notes (optional)</label>
+        <input type="text" id="penNotes" value="${escapeHtml(draft.notes||'')}" placeholder="e.g. bred heifers, partnership w/ Berger">
+      </div>
+      <button class="btn block" id="savePenBtn">${isNew?'Add Pen':'Save Pen'}</button>
+    </div>`;
+
+    document.getElementById('backBtn').onclick = ()=>{ openPenEditId=null; render(); };
+    document.getElementById('penName').oninput = e=> draft.penName = e.target.value;
+    document.getElementById('headCount').oninput = e=> draft.headCount = e.target.value;
+    document.getElementById('anchorWeight').oninput = e=>{ draft.anchorWeight = e.target.value; patchPreview(); };
+    document.getElementById('anchorDate').onchange = e=>{ draft.anchorDate = e.target.value; patchPreview(); };
+    document.getElementById('adg').oninput = e=>{ draft.adg = e.target.value; patchPreview(); };
+    document.getElementById('intakeMode').onchange = e=>{ draft.intakeMode = e.target.value; paint(); };
+    document.getElementById('intakeValue')?.addEventListener('input', e=>{ draft.intakeValue = e.target.value; patchPreview(); });
+    document.getElementById('penNotes').oninput = e=> draft.notes = e.target.value;
+    document.getElementById('savePenBtn').onclick = ()=>{
+      const penName = (draft.penName||'').trim();
+      const headCount = Number(draft.headCount)||0;
+      if(!penName){ showToast('Give this pen a name'); return; }
+      if(!headCount || headCount<=0){ showToast('Enter a head count'); return; }
+      const clean = {
+        id: draft.id, penName, headCount,
+        anchorWeight: Number(draft.anchorWeight)||0,
+        anchorDate: draft.anchorDate || todayStr(),
+        adg: Number(draft.adg)||0,
+        intakeMode: draft.intakeMode,
+        intakeValue: Number(draft.intakeValue)||0,
+        lastRationId: draft.lastRationId||null,
+        lastAdjustPct: draft.lastAdjustPct||0,
+        archived: draft.archived||false,
+        notes: (draft.notes||'').trim()
+      };
+      if(isNew){ state.pens.push(clean); }
+      else{
+        const i = state.pens.findIndex(p=>p.id===draft.id);
+        state.pens[i] = clean;
+      }
+      saveState();
+      openPenEditId=null;
+      showToast('Pen saved');
+      render();
+    };
+  }
+  paint();
+}
+
+/* ================= RATIONS TAB ================= */
+function renderRations(){
+  return `
+  <button class="btn block" id="newRationBtn">+ New Ration</button>
+  <div style="margin-top:12px">
+    ${state.rations.length===0 ? `<div class="empty">No rations yet. Add ingredients and a ration to get started.</div>` :
+      state.rations.map(r=>{
+        const totalPct = r.items.reduce((s,it)=>s+(it.pctAsFed||0),0);
+        const dmFrac = rationWeightedDmFraction(r);
+        return `<div class="card">
+          <div style="font-weight:700">${escapeHtml(r.name)}</div>
+          <div class="muted">${r.items.length} ingredients &middot; ${fmt(r.referenceTotalAsFed||0)} lb as-fed/hd/day reference &middot; ~${fmt(dmFrac*100)}% DM overall</div>
+          <ul style="margin:8px 0 0 18px;padding:0;font-size:13px;color:var(--sub)">
+            ${r.items.map(it=>`<li>${escapeHtml(ingredientName(it.ingredientId))}: ${fmt(it.pctAsFed)}% as-fed</li>`).join('')}
+          </ul>
+          <div class="row" style="margin-top:10px;gap:6px">
+            <button class="btn secondary small" data-editration="${r.id}">Edit</button>
+            <button class="btn ghost small" data-dupration="${r.id}">Duplicate</button>
+            <button class="btn danger small" data-delration="${r.id}">Delete</button>
+          </div>
+        </div>`;
+      }).join('')}
+  </div>`;
+}
+
+function renderRationEditor(rationId){
+  const isNew = rationId==='new';
+  let draft;
+  if(isNew){
+    draft = {id:uid(), name:'', referenceTotalAsFed:0, items:[]};
+  } else {
+    draft = JSON.parse(JSON.stringify(rationById(rationId)));
+    if(draft.referenceTotalAsFed===undefined) draft.referenceTotalAsFed = 0;
+  }
+
+  function rowHint(idx){
+    const it = draft.items[idx];
+    const dmPct = ingredientDmPct(it.ingredientId);
+    const pct = Number(it.pctAsFed)||0;
+    const refTotal = Number(draft.referenceTotalAsFed)||0;
+    const asFedAtRef = refTotal>0 ? round1(refTotal * pct/100) : null;
+    const dmAtRef = asFedAtRef!==null ? round1(asFedAtRef * dmPct/100) : null;
+    return `DM ${fmt(dmPct)}%${asFedAtRef!==null ? ` &rarr; ${fmt(asFedAtRef)} lb as-fed (${fmt(dmAtRef)} lb DM) at reference` : ''}`;
+  }
+
+  function rowsHtml(){
+    return draft.items.map((it,idx)=>`
+      <div class="ing-row" data-row="${idx}">
+        <select data-ingsel="${idx}">
+          ${state.ingredients.map(ing=>`<option value="${ing.id}" ${ing.id===it.ingredientId?'selected':''}>${escapeHtml(ing.name)}</option>`).join('')}
+          <option value="__new__">➕ New ingredient...</option>
+        </select>
+        <input class="lbsw" type="number" inputmode="decimal" data-pct="${idx}" value="${it.pctAsFed}" placeholder="% as-fed">
+        <div class="updown">
+          <button data-up="${idx}" ${idx===0?'disabled':''}>▲</button>
+          <button data-down="${idx}" ${idx===draft.items.length-1?'disabled':''}>▼</button>
+        </div>
+        <button class="small-x" data-removerow="${idx}">✕</button>
+      </div>
+      <div class="muted" id="dmHint-${idx}" style="margin:0 0 8px 2px">${rowHint(idx)}</div>`).join('');
+  }
+
+  function totalsLineHtml(){
+    const totalPct = draft.items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
+    const dmFrac = rationWeightedDmFraction(draft);
+    const offBy = Math.abs(totalPct-100);
+    return `Total: <b class="${offBy>0.5?'text-warn':''}">${fmt(totalPct)}%</b>${offBy>0.5?' (aim for 100% \u2014 targets still work off whatever it sums to, but it\u2019s easy to lose track otherwise)':''} &middot; Mix is ~${fmt(dmFrac*100)}% DM overall.`;
+  }
+
+  function refreshRowHints(){
+    draft.items.forEach((it,idx)=>{
+      const hint = document.getElementById('dmHint-'+idx);
+      if(hint) hint.innerHTML = rowHint(idx);
+    });
+    const totalsLine = document.getElementById('ratioTotalsLine');
+    if(totalsLine) totalsLine.innerHTML = totalsLineHtml();
+  }
+
+  function paint(){
+    document.getElementById('app').innerHTML = `
+    <div class="fs-header">
+      <button class="back" id="backBtn">←</button>
+      <div style="font-weight:700">${isNew?'New Ration':'Edit Ration'}</div>
+    </div>
+    <div class="fs-body">
+      <div class="card">
+        <label>Ration Name</label>
+        <input type="text" id="rationName" value="${escapeHtml(draft.name)}" placeholder="e.g. Backgrounder Grower">
+        <label style="margin-top:12px">Reference Total Mix Amount (lb as-fed/hd/day)</label>
+        <input type="number" inputmode="decimal" id="refTotal" value="${draft.referenceTotalAsFed||0}" placeholder="e.g. 48">
+        <div class="muted" style="margin-top:4px">Used for pens set to "Use ration as entered," and to show reference pounds per ingredient below. Not needed if every pen using this ration has its own DM intake target (%BW or flat DM, set on the Pens tab).</div>
+        <label style="margin-top:12px">Ingredients (% of total mix, as-fed basis)</label>
+        <div id="ingRows">${rowsHtml()}</div>
+        <button class="link" id="addIngRow" style="margin-top:8px">+ Add ingredient row</button>
+        <div class="muted" style="margin-top:10px" id="ratioTotalsLine">${totalsLineHtml()}</div>
+        <div class="muted" style="margin-top:6px">Order here sets the mixing/weigh-up order. When a pen has its own DM intake target, the mix's blended DM% (above) converts that target into a total as-fed amount, then splits it across ingredients by their % share.</div>
+      </div>
+      <button class="btn block" id="saveRationBtn">Save Ration</button>
+    </div>`;
+
+    document.getElementById('backBtn').onclick = ()=>{ openRationId=null; render(); };
+    document.getElementById('rationName').oninput = e=> draft.name = e.target.value;
+    document.getElementById('refTotal').oninput = e=>{
+      draft.referenceTotalAsFed = Number(e.target.value)||0;
+      refreshRowHints();
+    };
+    document.getElementById('addIngRow').onclick = ()=>{
+      const firstIng = state.ingredients[0];
+      draft.items.push({ingredientId: firstIng?firstIng.id:null, pctAsFed:0});
+      paint();
+    };
+    document.querySelectorAll('[data-removerow]').forEach(b=>b.addEventListener('click', e=>{
+      draft.items.splice(Number(e.target.dataset.removerow),1); paint();
+    }));
+    document.querySelectorAll('[data-up]').forEach(b=>b.addEventListener('click', e=>{
+      const i = Number(e.target.dataset.up);
+      if(i>0){ [draft.items[i-1],draft.items[i]]=[draft.items[i],draft.items[i-1]]; paint(); }
+    }));
+    document.querySelectorAll('[data-down]').forEach(b=>b.addEventListener('click', e=>{
+      const i = Number(e.target.dataset.down);
+      if(i<draft.items.length-1){ [draft.items[i+1],draft.items[i]]=[draft.items[i],draft.items[i+1]]; paint(); }
+    }));
+    document.querySelectorAll('[data-pct]').forEach(inp=>inp.addEventListener('input', e=>{
+      const idx = Number(e.target.dataset.pct);
+      draft.items[idx].pctAsFed = Number(e.target.value)||0;
+      refreshRowHints();
+    }));
+    document.querySelectorAll('[data-ingsel]').forEach(sel=>sel.addEventListener('change', e=>{
+      const idx = Number(e.target.dataset.ingsel);
+      if(e.target.value==='__new__'){
+        const name = prompt('New ingredient name:');
+        if(name && name.trim()){
+          const newIng = {id:uid(), name:name.trim(), dmPct:guessDmPct(name.trim())};
+          state.ingredients.push(newIng);
+          draft.items[idx].ingredientId = newIng.id;
+          saveState();
+        }
+        paint();
+      } else {
+        draft.items[idx].ingredientId = e.target.value;
+        paint();
+      }
+    }));
+    document.getElementById('saveRationBtn').onclick = ()=>{
+      if(!draft.name.trim()){ showToast('Give the ration a name'); return; }
+      if(draft.items.length===0){ showToast('Add at least one ingredient'); return; }
+      if(isNew){ state.rations.push(draft); }
+      else{
+        const i = state.rations.findIndex(r=>r.id===rationId);
+        state.rations[i] = draft;
+      }
+      saveState();
+      openRationId=null;
+      showToast('Ration saved');
+      render();
+    };
+  }
+  paint();
+}
+
+/* ================= HISTORY TAB ================= */
+function renderHistory(){
+  const dates = [...state.feedCalls].sort((a,b)=> b.date.localeCompare(a.date));
+  const filt = historyFilter.trim().toLowerCase();
+  let anyResults = false;
+  const blocks = dates.map(fc=>{
+    let loads = fc.loads;
+    if(filt){
+      loads = loads.filter(l=>{
+        const r = rationById(l.rationId);
+        const penMatch = (l.pens||[]).some(p=>p.penName.toLowerCase().includes(filt));
+        return penMatch || (r && r.name.toLowerCase().includes(filt));
+      });
+    }
+    if(loads.length===0) return '';
+    anyResults = true;
+    return `<div class="hist-date">${displayDate(fc.date)}</div>` + loads.map(l=>{
+      const ration = rationById(l.rationId);
+      const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
+      const penNames = (l.pens||[]).map(p=>escapeHtml(p.penName)).join(', ');
+      const varTag = l.overallVariancePct!==null ? `<span class="variance-tag ${varianceClass(l.overallVariancePct)}">${l.overallVariancePct>0?'+':''}${fmt(l.overallVariancePct)}%</span>` : '';
+      return `<div class="card" data-viewload="${l.id}">
+        <div class="row">
+          <div>
+            <div style="font-weight:700">${penNames}</div>
+            <div class="muted">${totalHead} hd total &middot; ${ration?escapeHtml(ration.name):'(deleted)'}</div>
+          </div>
+          <span class="badge ${l.status==='done'?'done':'pending'}">${l.status==='done'?'Done':'Incomplete'}</span>
+        </div>
+        <div class="muted" style="margin-top:6px">Target ${fmt(l.totalTargetLbs)} lb &middot; Actual ${l.totalActualLbs!==null?fmt(l.totalActualLbs):'-'} lb ${varTag}</div>
+      </div>`;
+    }).join('');
+  }).join('');
+
+  return `
+  <div class="card">
+    <input type="text" id="histFilter" placeholder="Filter by pen or ration name" value="${escapeHtml(historyFilter)}">
+  </div>
+  <div class="field-row">
+    <button class="btn secondary block" id="exportCsvBtn">Export Ingredient Detail (CSV)</button>
+    <button class="btn secondary block" id="exportPenCsvBtn">Export Pen Summary (CSV)</button>
+  </div>
+  <div style="margin-top:10px">
+    ${dates.length===0 ? `<div class="empty">No feed calls logged yet.</div>` : (anyResults?blocks:`<div class="empty">No matches.</div>`)}
+  </div>`;
+}
+
+function exportCsv(){
+  const rows = [['Date','Pens','Total Head Count','Ration','Ingredient','Target lb','Actual lb','Variance lb','Variance %','Skipped']];
+  const dates = [...state.feedCalls].sort((a,b)=>a.date.localeCompare(b.date));
+  dates.forEach(fc=>{
+    fc.loads.forEach(l=>{
+      const ration = rationById(l.rationId);
+      const penNames = (l.pens||[]).map(p=>p.penName).join('; ');
+      const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
+      l.entries.forEach(e=>{
+        rows.push([
+          fc.date, penNames, totalHead, ration?ration.name:'',
+          ingredientName(e.ingredientId), e.targetIncremental,
+          e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no'
+        ]);
+      });
+    });
+  });
+  downloadCsv(rows, `rock-hills-feed-history-${todayStr()}.csv`);
+}
+
+function exportPenSummaryCsv(){
+  const rows = [['Date','Pen','Head Count','Call Adjustment %','Ration','Combined With','Projected Weight lb','Target DMI lb/hd','Est Target lb','Est Actual lb','Est Variance %']];
+  const dates = [...state.feedCalls].sort((a,b)=>a.date.localeCompare(b.date));
+  dates.forEach(fc=>{
+    fc.loads.forEach(l=>{
+      const ration = rationById(l.rationId);
+      const breakdown = loadPenBreakdown(l);
+      breakdown.forEach(p=>{
+        const others = (l.pens||[]).filter(op=>op.id!==p.id).map(op=>op.penName).join('; ');
+        rows.push([
+          fc.date, p.penName, p.headCount, p.adjustPct||0, ration?ration.name:'',
+          others, p.projectedWeightToday??'', p.targetDMIToday??'', p.targetTotal, p.actualTotal??'', p.variancePct??''
+        ]);
+      });
+    });
+  });
+  downloadCsv(rows, `rock-hills-pen-summary-${todayStr()}.csv`);
+}
+
+function downloadCsv(rows, filename){
+  const csv = rows.map(r=>r.map(csvEscape).join(',')).join('\n');
+  downloadTextFile(csv, filename, 'text/csv');
+}
+function downloadTextFile(text, filename, mimeType){
+  const blob = new Blob([text], {type: mimeType||'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+
+/* ================= SETTINGS TAB ================= */
+function renderSettings(){
+  const pending = pendingReportDates();
+  return `
+  <div class="card">
+    <h2>Daily Report</h2>
+    <p class="muted">Each done load's numbers roll into that day's report -- a text/CSV summary you save to Drive and email out yourself, once a day, from the Today tab. Your name below is what shows up in the report so it's clear which phone it came from.</p>
+    <label>Your Name</label>
+    <input type="text" id="reporterName" value="${escapeHtml(state.settings.reporterName||'')}" placeholder="e.g. Till">
+    ${pending.length ? `
+    <div class="muted" style="margin-top:8px">${pending.length} day${pending.length===1?'':'s'} still need${pending.length===1?'s':''} a report sent: ${pending.map(d=>displayDate(d)).join(', ')}.</div>
+    ` : `<div class="muted" style="margin-top:8px">Every past day has a report on file.</div>`}
+  </div>
+
+  <div class="card">
+    <h2>Variance Colors</h2>
+    <div class="field-row">
+      <div>
+        <label>Green up to (%)</label>
+        <input type="number" id="yellowPct" value="${state.settings.yellowPct}">
+      </div>
+      <div>
+        <label>Yellow up to (%)</label>
+        <input type="number" id="redPct" value="${state.settings.redPct}">
+      </div>
+    </div>
+    <div class="muted" style="margin-top:6px">Above the second number shows red.</div>
+  </div>
+
+  <div class="card">
+    <h2>Ingredients &amp; Dry Matter %</h2>
+    <p class="muted">DM% is how much of the ingredient isn't water. Wet feeds like silage run 30-40% DM; dry feeds like hay or a mineral run 85-95%+. This is what converts a dry-matter feeding target into the as-fed pounds your scale actually reads. Pre-filled with typical textbook values &mdash; correct them to real numbers (a feed test, or at least a known moisture) whenever you can, especially for silage.</p>
+    ${state.ingredients.length===0? `<div class="muted">None yet - add one below.</div>`: state.ingredients.map(ing=>{
+      const inUse = state.rations.some(r=>r.items.some(it=>it.ingredientId===ing.id));
+      return `<div class="row" style="padding:6px 0;border-bottom:1px solid #eee;align-items:center">
+        <input type="text" data-renameing="${ing.id}" value="${escapeHtml(ing.name)}" style="border:none;background:transparent;padding:4px 2px;flex:2">
+        <div style="display:flex;align-items:center;gap:4px;flex:1;justify-content:flex-end">
+          <input type="number" inputmode="decimal" data-dmpct="${ing.id}" value="${ing.dmPct!=null?ing.dmPct:100}" style="width:56px;padding:6px 4px;text-align:right">
+          <span class="muted">% DM</span>
+        </div>
+        <button class="small-x" data-delling="${ing.id}" title="${inUse?'In use by a ration':'Delete'}">✕</button>
+      </div>`;
+    }).join('')}
+    <button class="link" id="addIngBtn" style="margin-top:10px">+ Add ingredient</button>
+  </div>
+
+  <div class="card">
+    <h2>Backup</h2>
+    <p class="muted">Data is saved only on this phone/browser. Export a backup occasionally, especially before switching phones.</p>
+    <button class="btn secondary block" id="exportJsonBtn">Export Backup (JSON)</button>
+    <label style="margin-top:10px">Restore from Backup</label>
+    <input type="file" id="importJsonFile" accept="application/json">
+  </div>
+
+  <div class="card">
+    <h2>Add to Home Screen</h2>
+    <p class="muted"><b>iPhone:</b> open this file in Safari, tap Share, then "Add to Home Screen".<br><br>
+    <b>Android:</b> open in Chrome, tap the ⋮ menu, then "Add to Home Screen" / "Install app".<br><br>
+    This makes it launch full-screen like an app and works with zero signal - all your data stays on the phone.</p>
+  </div>
+
+  <div class="card">
+    <h2>Danger Zone</h2>
+    <button class="btn danger block" id="clearAllBtn">Clear All Data</button>
+  </div>
+  `;
+}
+
+function wireSettingsEvents(){
+  document.getElementById('reporterName').onchange = e=>{ state.settings.reporterName = e.target.value; saveState(); };
+  document.getElementById('yellowPct').onchange = e=>{ state.settings.yellowPct = Number(e.target.value)||0; saveState(); };
+  document.getElementById('redPct').onchange = e=>{ state.settings.redPct = Number(e.target.value)||0; saveState(); };
+  document.querySelectorAll('[data-renameing]').forEach(inp=>inp.addEventListener('change', e=>{
+    const ing = state.ingredients.find(i=>i.id===e.target.dataset.renameing);
+    if(ing){ ing.name = e.target.value.trim()||ing.name; saveState(); }
+  }));
+  document.querySelectorAll('[data-dmpct]').forEach(inp=>inp.addEventListener('change', e=>{
+    const ing = state.ingredients.find(i=>i.id===e.target.dataset.dmpct);
+    if(ing){
+      let v = Number(e.target.value);
+      if(!isFinite(v) || v<=0) v = 100;
+      if(v>100) v = 100;
+      ing.dmPct = round1(v);
+      saveState();
+    }
+  }));
+  document.querySelectorAll('[data-delling]').forEach(b=>b.addEventListener('click', e=>{
+    const id = e.target.dataset.delling;
+    const inUse = state.rations.some(r=>r.items.some(it=>it.ingredientId===id));
+    if(inUse){ showToast('Remove it from rations first'); return; }
+    confirmAction('Delete this ingredient?', ()=>{
+      state.ingredients = state.ingredients.filter(i=>i.id!==id);
+      saveState(); render();
+    });
+  }));
+  document.getElementById('addIngBtn').onclick = ()=>{
+    const name = prompt('New ingredient name:');
+    if(name && name.trim()){
+      state.ingredients.push({id:uid(), name:name.trim(), dmPct:guessDmPct(name.trim())});
+      saveState(); render();
+    }
+  };
+  document.getElementById('exportJsonBtn').onclick = ()=>{
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `rock-hills-feed-wagon-backup-${todayStr()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+  document.getElementById('importJsonFile').onchange = e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(!parsed.ingredients || !parsed.rations || !parsed.feedCalls) throw new Error('bad format');
+        confirmAction('Replace all current data with this backup?', ()=>{
+          state = parsed;
+          migrateState();
+          saveState(); showToast('Backup restored'); render();
+        });
+      }catch(err){ showToast('Could not read that file'); }
+    };
+    reader.readAsText(file);
+  };
+  document.getElementById('clearAllBtn').onclick = ()=>{
+    confirmAction('This deletes ALL ingredients, rations, pens, and history on this phone. Export a backup first if unsure. Continue?', ()=>{
+      state = defaultState();
+      saveState(); showToast('All data cleared'); render();
+    });
+  };
+}
+
+/* ================= shared: confirm modal & escaping ================= */
+function confirmAction(message, onConfirm){
+  const html = `
+  <div class="overlay" id="confirmOverlay">
+    <div class="sheet">
+      <p>${escapeHtml(message)}</p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="confirmCancel">Cancel</button>
+        <button class="btn danger" id="confirmYes">Confirm</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('confirmCancel').onclick = ()=> document.getElementById('confirmOverlay').remove();
+  document.getElementById('confirmYes').onclick = ()=>{ document.getElementById('confirmOverlay').remove(); onConfirm(); };
+}
+function escapeHtml(s){
+  return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ---------------- migration + init ---------------- */
+// v1 -> v2: single-pen loads became combined loads with a pens[] array.
+// v2 -> v3: ingredients gained DM%, a persistent pen roster was added, and
+// ration items (previously as-fed) became DM-basis. To keep every existing
+// ration behaving EXACTLY as before the moment this update lands, each
+// ration item is converted using the freshly-seeded DM% so that dividing
+// back through (DM / DM%) reconstructs the identical as-fed number as
+// pre-update. Nothing about today's targets changes on its own -- it only
+// changes once you deliberately correct an ingredient's DM% or put a pen
+// on %BW/flat-DM targeting.
+// v3 -> v4: ration items switched from an absolute lb DM/hd/day amount to
+// a % of the total mix (as-fed basis), plus a single referenceTotalAsFed
+// (lb as-fed/hd/day) on the ration itself. Each item's old DM amount is
+// converted back to as-fed via its ingredient's DM%, summed to get the
+// reference total, then expressed as a % share of that total -- this
+// reconstructs the exact same mix and the exact same targets as pre-update.
+function migrateState(){
+  state.feedCalls = state.feedCalls || [];
+  state.pens = state.pens || [];
+  state.rations = state.rations || [];
+  state.settings = state.settings || {};
+  if(state.settings.yellowPct===undefined) state.settings.yellowPct = 3;
+  if(state.settings.redPct===undefined) state.settings.redPct = 6;
+  if(state.settings.reporterName===undefined) state.settings.reporterName = '';
+  delete state.settings.writePassphrase; // leftover from a briefly-shipped cloud-sync build
+
+  state.feedCalls.forEach(fc=>{
+    if(!fc.loads && fc.pens){
+      fc.loads = fc.pens.map(p=>({
+        id: p.id, date: fc.date,
+        rationId: p.rationId,
+        startingWeight: p.startingWeight||0,
+        pens: [{id:uid(), rosterId:null, penName:p.penName, headCount:p.headCount, adjustPct:p.adjustPct||0,
+                 anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0}],
+        entries: p.entries||[],
+        status: p.status,
+        totalTargetLbs: p.totalTargetLbs,
+        totalActualLbs: p.totalActualLbs,
+        overallVariancePct: p.overallVariancePct,
+        completedAt: p.completedAt
+      }));
+      delete fc.pens;
+    }
+    if(!fc.loads) fc.loads = [];
+    fc.loads.forEach(load=>{
+      if(!load.date) load.date = fc.date;
+      if(!load.pens) load.pens = [];
+      load.pens.forEach(p=>{
+        if(p.intakeMode===undefined){ p.intakeMode='rationAsIs'; p.intakeValue=0; p.anchorWeight=null; p.anchorDate=null; p.adg=0; }
+        if(p.rosterId===undefined) p.rosterId=null;
+      });
+    });
+  });
+
+  state.ingredients.forEach(ing=>{
+    if(ing.dmPct===undefined || ing.dmPct===null) ing.dmPct = guessDmPct(ing.name);
+  });
+
+  const fromVersion = state.version||1; // capture BEFORE any step mutates it -- each guard below must see the ORIGINAL version, never an intermediate one
+
+  if(fromVersion < 3){
+    state.rations.forEach(r=>{
+      r.items.forEach(it=>{
+        const ing = state.ingredients.find(i=>i.id===it.ingredientId);
+        const dmPct = ing ? ing.dmPct : 100;
+        it.lbsPerHeadDay = round1(it.lbsPerHeadDay * (dmPct/100));
+      });
+    });
+  }
+
+  if(fromVersion < 4){
+    state.rations.forEach(r=>{
+      const asFedList = r.items.map(it=>{
+        const ing = state.ingredients.find(i=>i.id===it.ingredientId);
+        const dmPct = ing ? ing.dmPct : 100;
+        return dmPct>0 ? (it.lbsPerHeadDay||0)/(dmPct/100) : (it.lbsPerHeadDay||0);
+      });
+      const totalAsFed = asFedList.reduce((s,v)=>s+v,0);
+      r.items = r.items.map((it,idx)=>({
+        ingredientId: it.ingredientId,
+        pctAsFed: totalAsFed>0 ? round1(asFedList[idx]/totalAsFed*100) : round1(100/(r.items.length||1))
+      }));
+      r.referenceTotalAsFed = round1(totalAsFed);
+    });
+  }
+  state.version = 4;
+
+  // Existing entries keep their historically-recorded targets; only refresh
+  // derived totals/status. Only truly-empty loads get a fresh buildTargets.
+  state.feedCalls.forEach(fc=>{
+    fc.loads.forEach(load=>{
+      if(!load.entries || load.entries.length===0) buildTargets(load);
+      else recomputeActuals(load);
+    });
+  });
+}
+
+migrateState();
+saveState();
+render();
+</script>
+</body>
+</html>
