@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Lunch Lady</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#3a5a40">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   :root{
     --green:#2e7d32; --green-bg:#e8f5e9;
@@ -127,6 +131,9 @@
 <script>
 /* ---------------- storage ---------------- */
 const STORAGE_KEY = 'lunchlady_v1';
+// Shown in Settings so you can confirm every phone picked up an update.
+// Bump this whenever a new index.html is pushed to GitHub.
+const APP_VERSION = '2026-09-28';
 
 /* ---------------- Ranch Savvy link (read-only) ---------------- */
 // Optional one-way pull of herd names + head counts from the Ranch Savvy
@@ -287,91 +294,10 @@ function pendingReportDates(){
     .sort();
 }
 
-// Day roll-up: total lb of each ingredient that left the yard today.
-// Mixer lb are the ACTUAL scale-derived amounts (skipped rows excluded);
-// a non-skipped row with no reading entered counts its TARGET as delivered
-// (skipped rows never do) and is tallied in missingReadings so the report
-// can show which totals include a target standing in for a reading.
-// Field-delivery lb are added on the day they were delivered, as-fed,
-// regardless of how many days the delivery covers. Keyed by ingredient id,
-// ordered by first appearance (mixer weigh-up order, then field lines).
-function dayIngredientTotals(fc){
-  const map = new Map();
-  const get = (id, name)=>{
-    if(!map.has(id)) map.set(id, {ingredientId:id, name, mixerTarget:0, mixerActual:0, fieldLbs:0, missingReadings:0, hasMixer:false});
-    return map.get(id);
-  };
-  (fc.loads||[]).forEach(l=>{
-    (l.entries||[]).forEach(e=>{
-      if(e.skipped) return;
-      const t = get(e.ingredientId, e.ingredientName || ingredientName(e.ingredientId));
-      t.hasMixer = true;
-      t.mixerTarget += Number(e.targetIncremental)||0;
-      if(e.actualIncremental!==null && e.actualIncremental!==undefined) t.mixerActual += Number(e.actualIncremental)||0;
-      else { t.mixerActual += Number(e.targetIncremental)||0; t.missingReadings += 1; }
-    });
-  });
-  (fc.fieldDeliveries||[]).forEach(fd=>{
-    (fd.lines||[]).forEach(l=>{
-      const t = get(l.ingredientId, fdIngName(l));
-      t.fieldLbs += fdLineLbs(l);
-    });
-  });
-  return [...map.values()].map(t=>({
-    ...t,
-    mixerTarget: round1(t.mixerTarget),
-    mixerActual: round1(t.mixerActual),
-    fieldLbs: round1(t.fieldLbs),
-    totalDelivered: round1(t.mixerActual + t.fieldLbs)
-  }));
-}
-
-// One load's delivered total for the report. Same rule as the day's
-// ingredient totals: a non-skipped weigh-up with no reading counts at its
-// target; skipped ingredients count zero. filledFromTarget says how many
-// rows were stood in by target so the report can say so.
-function loadDeliveredSummary(l){
-  let target=0, delivered=0, filledFromTarget=0;
-  (l.entries||[]).forEach(e=>{
-    if(e.skipped) return;
-    const tg = Number(e.targetIncremental)||0;
-    target += tg;
-    if(e.actualIncremental!==null && e.actualIncremental!==undefined) delivered += Number(e.actualIncremental)||0;
-    else { delivered += tg; filledFromTarget += 1; }
-  });
-  target = round1(target); delivered = round1(delivered);
-  const head = (l.pens||[]).reduce((s,p)=>s+(Number(p.headCount)||0),0);
-  return {
-    target, delivered, head, filledFromTarget,
-    variance: round1(delivered-target),
-    variancePct: target!==0 ? round1(((delivered-target)/target)*100) : null,
-    lbPerHead: head>0 ? round1(delivered/head) : null
-  };
-}
-
 function buildDailyReportText(fc){
   const lines = [];
   lines.push(`Feed report - ${displayDate(fc.date)}`);
   lines.push(`Logged by: ${reporterName()}`);
-  lines.push('');
-  // Ingredient totals go near the TOP: the emailed copy gets truncated
-  // around 1800 characters, and this is the summary that must survive.
-  const ingTotals = dayIngredientTotals(fc);
-  if(ingTotals.length){
-    lines.push('--- Ingredient totals delivered today ---');
-    ingTotals.forEach(t=>{
-      const parts = [];
-      if(t.hasMixer){
-        const vp = t.mixerTarget>0 ? round1(((t.mixerActual-t.mixerTarget)/t.mixerTarget)*100) : null;
-        parts.push(`mixer ${fmt(t.mixerActual)} of ${fmt(t.mixerTarget)} target${vp!==null?`, ${vp>0?'+':''}${fmt(vp)}%`:''}`);
-      }
-      if(t.fieldLbs>0) parts.push(`field ${fmt(t.fieldLbs)}`);
-      const missing = t.missingReadings ? ` -- ${t.missingReadings} weigh-up${t.missingReadings===1?'':'s'} not entered, counted at target` : '';
-      lines.push(`${t.name}: ${fmt(t.totalDelivered)} lb${parts.length?` (${parts.join('; ')})`:''}${missing}`);
-    });
-    const grand = round1(ingTotals.reduce((s,t)=>s+t.totalDelivered,0));
-    lines.push(`All ingredients: ${fmt(grand)} lb`);
-  }
   lines.push('');
   fc.loads.forEach((l,i)=>{
     const ration = rationById(l.rationId);
@@ -389,9 +315,7 @@ function buildDailyReportText(fc){
         lines.push(`  ${name}: target ${fmt(e.targetIncremental)} lb / actual ${actual}${varPct}`);
       }
     });
-    const ls = loadDeliveredSummary(l);
-    lines.push(`  Load total: target ${fmt(ls.target)} lb / delivered ${fmt(ls.delivered)} lb${ls.variancePct!==null?` (${ls.variancePct>0?'+':''}${fmt(ls.variancePct)}%)`:''}${ls.lbPerHead!==null?` = ${fmt(ls.lbPerHead)} lb/hd`:''}${ls.filledFromTarget?` -- ${ls.filledFromTarget} weigh-up${ls.filledFromTarget===1?'':'s'} counted at target`:''}`);
-    if((l.comments||'').trim()) lines.push(`  Load comment: ${l.comments.trim()}`);
+    lines.push(`  Load total: target ${fmt(l.totalTargetLbs)} lb / actual ${l.totalActualLbs!=null?fmt(l.totalActualLbs):'-'} lb`);
     lines.push('');
   });
   const fds = fc.fieldDeliveries||[];
@@ -410,16 +334,14 @@ function buildDailyReportText(fc){
     lines.push('');
   });
   const dayTarget = fc.loads.reduce((s,l)=>s+(l.totalTargetLbs||0),0);
-  // same fill rule as the load totals above, so the day line equals the
-  // sum of the load lines (missing non-skipped readings counted at target)
-  const anyDayActual = fc.loads.length>0;
-  const dayActual = round1(fc.loads.reduce((s,l)=> s+loadDeliveredSummary(l).delivered, 0));
+  const anyDayActual = fc.loads.some(l=>l.totalActualLbs!=null);
+  const dayActual = fc.loads.reduce((s,l)=> l.totalActualLbs!=null ? s+l.totalActualLbs : s, 0);
   // mixer totals and field-delivery totals stay SEPARATE on purpose: a
   // 4-day bale drop lumped into one day's mixer total would misstate both.
   const mixerLabel = fds.length ? 'Mixer total' : 'Day total';
   if(fc.loads.length){
     lines.push(`${mixerLabel} target: ${fmt(dayTarget)} lb`);
-    lines.push(`${mixerLabel} delivered: ${anyDayActual?fmt(dayActual):'-'} lb`);
+    lines.push(`${mixerLabel} actual: ${anyDayActual?fmt(dayActual):'-'} lb`);
   }
   if(fds.length){
     const fdDelivered = fds.reduce((s,fd)=>s+fdTotals(fd).actual,0);
@@ -432,32 +354,19 @@ function buildDailyReportText(fc){
 }
 
 function buildDailyReportCsv(fc){
-  // 'Lb per Head' (M) and 'Load Comment' (N) are appended as the LAST columns so every earlier column
-  // keeps its position; it repeats on each ingredient row of its load so a
-  // filtered/sorted sheet never loses it.
-  const rows = [['Date','Logged By','Load #','Pens','Total Head','Ration','Ingredient','Target lb','Actual lb','Variance lb','Variance %','Skipped','Lb per Head','Load Comment']];
+  const rows = [['Date','Logged By','Load #','Pens','Total Head','Ration','Ingredient','Target lb','Actual lb','Variance lb','Variance %','Skipped']];
   fc.loads.forEach((l,i)=>{
     const ration = rationById(l.rationId);
     const rationName = l.rationName || (ration ? ration.name : '');
     const penNames = (l.pens||[]).map(p=>p.penName).join('; ');
     const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
-    const loadComment = (l.comments||'').trim();
     (l.entries||[]).forEach(e=>{
       rows.push([
         fc.date, reporterName(), i+1, penNames, totalHead, rationName,
         e.ingredientName || ingredientName(e.ingredientId), e.targetIncremental,
-        e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no', '', loadComment
+        e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no'
       ]);
     });
-    // summary row right under the load's last ingredient: target vs
-    // delivered (missing non-skipped readings counted at target) and lb/hd
-    const ls = loadDeliveredSummary(l);
-    rows.push([
-      fc.date, reporterName(), i+1, penNames, totalHead, rationName,
-      ls.filledFromTarget ? `(load total - ${ls.filledFromTarget} counted at target)` : '(load total)',
-      ls.target, ls.delivered, ls.variance, ls.variancePct??'', '', ls.lbPerHead??'', loadComment
-    ]);
-    rows.push([]); // blank row between loads
   });
   // Field deliveries ride in the SAME columns (no schema change to the
   // accumulating daily CSVs): Load # is 'FD1', 'FD2'...; Pens carries the
@@ -470,22 +379,13 @@ function buildDailyReportCsv(fc){
     (fd.lines||[]).forEach(l=>{
       rows.push([
         fc.date, reporterName(), 'FD'+(i+1), fd.groupName, fd.headCount, rationCol,
-        fdIngName(l), '', fdLineLbs(l), '', '', 'no', '', ''
+        fdIngName(l), '', fdLineLbs(l), '', '', 'no'
       ]);
     });
     rows.push([
       fc.date, reporterName(), 'FD'+(i+1), fd.groupName, fd.headCount, rationCol,
-      '(delivery total)', t.target, t.actual, round1(t.actual-t.target), t.variancePct??'', 'no',
-      fd.headCount>0 ? round1(t.actual/fd.headCount) : '', ''
+      '(delivery total)', t.target, t.actual, round1(t.actual-t.target), t.variancePct??'', 'no'
     ]);
-    rows.push([]); // blank row between deliveries
-  });
-  if(rows[rows.length-1].length) rows.push([]); // loads/deliveries already end on a blank row
-  // separate block after a blank row, same as Comments -- the per-load
-  // rows above keep their existing column layout untouched
-  rows.push(['Ingredient Totals','Ingredient','Mixer Target lb','Mixer Actual lb','Field Delivered lb','Total Delivered lb','Weigh-ups Counted at Target']);
-  dayIngredientTotals(fc).forEach(t=>{
-    rows.push([fc.date, t.name, t.hasMixer?t.mixerTarget:'', t.hasMixer?t.mixerActual:'', t.fieldLbs||'', t.totalDelivered, t.missingReadings||'']);
   });
   rows.push([]);
   rows.push(['Comments', (fc.comments||'').trim() || '(none)']);
@@ -1014,7 +914,6 @@ function renderLoadCard(load){
       <div class="muted">Target: <b>${fmt(load.totalTargetLbs)} lb</b>${load.totalActualLbs!==null?` &nbsp;Actual: <b>${fmt(load.totalActualLbs)} lb</b> ${varTag}`:''}</div>
       <span class="badge ${badgeClass}">${statusLabel}</span>
     </div>
-    ${(load.comments||'').trim() ? `<div class="muted" style="margin-top:6px;font-style:italic">💬 ${escapeHtml(load.comments.trim())}</div>` : ''}
     <button class="btn secondary block" style="margin-top:8px" data-openload="${load.id}">${load.status==='done'?'Review Load':'Enter Load →'}</button>
   </div>`;
 }
@@ -1740,10 +1639,6 @@ function renderLoadEntry(loadId){
         </div>`).join('')}
       </div>
     </div>` : ''}
-    <div class="card">
-      <label style="margin-top:0">Load comment (optional)</label>
-      <textarea id="loadComments" rows="2" placeholder="e.g. silage wet on top, bunk was slick, added extra hay">${escapeHtml(load.comments||'')}</textarea>
-    </div>
     <button class="btn block" id="doneBtn">${load.status==='done'?'Load Marked Done ✓':'Mark Load Done'}</button>
   </div>`;
   document.getElementById('app').innerHTML = html;
@@ -1786,9 +1681,6 @@ function renderLoadEntry(loadId){
         if(next) next.focus(); else e.target.blur();
       }
     });
-  });
-  document.getElementById('loadComments').addEventListener('input', e=>{
-    load.comments = e.target.value; saveState();
   });
   document.getElementById('doneBtn').onclick = ()=>{
     const unfilled = load.entries.some(e=>!e.skipped && (e.actualCumulative===null||e.actualCumulative===undefined||e.actualCumulative===''));
@@ -2348,7 +2240,6 @@ function renderHistory(){
           <span class="badge ${l.status==='done'?'done':'pending'}">${l.status==='done'?'Done':'Incomplete'}</span>
         </div>
         <div class="muted" style="margin-top:6px">Target ${fmt(l.totalTargetLbs)} lb &middot; Actual ${l.totalActualLbs!==null?fmt(l.totalActualLbs):'-'} lb ${varTag}</div>
-        ${(l.comments||'').trim() ? `<div class="muted" style="margin-top:4px;font-style:italic">💬 ${escapeHtml(l.comments.trim())}</div>` : ''}
       </div>`;
     }).join('');
   }).join('');
@@ -2499,10 +2390,10 @@ function renderSettings(){
   </div>
 
   <div class="card">
-    <h2>Add to Home Screen</h2>
-    <p class="muted"><b>iPhone:</b> open this file in Safari, tap Share, then "Add to Home Screen".<br><br>
-    <b>Android:</b> open in Chrome, tap the ⋮ menu, then "Add to Home Screen" / "Install app".<br><br>
-    This makes it launch full-screen like an app and works with zero signal - all your data stays on the phone.</p>
+    <h2>App Install &amp; Updates</h2>
+    <p class="muted">Version ${APP_VERSION} &middot; ${installStatusLabel()}</p>
+    <p class="muted"><b>Install (Android):</b> open the app link in Chrome with internet, tap the ⋮ menu, then "Install app" or "Add to Home screen". After that it opens from the home screen and works with no signal.<br><br>
+    <b>Updates:</b> when a new version is posted, the phone downloads it quietly the next time the app is opened with any signal, and uses it the time after that. Nothing to reinstall. Your data is never touched by an update.</p>
   </div>
 
   <div class="card">
@@ -2603,6 +2494,27 @@ function confirmAction(message, onConfirm){
 }
 function escapeHtml(s){
   return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ---------------- offline install (web link only) ---------------- */
+// When opened from the hosted https link, register sw.js so the app is
+// saved on the phone and opens with no signal. A copy opened as a saved
+// file skips all of this and behaves exactly as before. Nothing here
+// touches feed data -- sw.js only caches the app's own files.
+function installStatusLabel(){
+  if(location.protocol!=='https:') return 'running from a saved file (no auto-updates)';
+  const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  return standalone ? 'installed, works offline' : 'opened in browser (install it from the ⋮ menu)';
+}
+function initOffline(){
+  if(location.protocol!=='https:') return;
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('offline setup failed', e));
+  }
+  // ask Chrome to never clear this app's saved data under storage pressure
+  if(navigator.storage && navigator.storage.persist){
+    navigator.storage.persist().catch(()=>{});
+  }
 }
 
 /* ---------------- migration + init ---------------- */
@@ -2716,6 +2628,7 @@ function migrateState(){
 migrateState();
 saveState();
 render();
+initOffline();
 // background pull on open -- fire-and-forget, cached, never blocks the UI;
 // refreshRanchSavvy() guards its own re-render against open editors
 if(ranchSavvyConfigured()) refreshRanchSavvy(false);
