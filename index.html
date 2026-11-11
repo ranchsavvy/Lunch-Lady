@@ -252,7 +252,7 @@ function defaultState(){
   const r1800 = {id: uid(), name:'R1800', dmPct: 90}; // placeholder -- replace with the product's actual DM%
   return {
     version:4,
-    settings:{ yellowPct:3, redPct:6, reporterName:'' },
+    settings:{ yellowPct:3, redPct:6, reporterName:'', wagonCapacityLb:0 },
     ingredients:[groundHay, silage, ddgs, oats, corn, flax, r1800],
     rations:[{
       id:uid(), name:'EXAMPLE - Backgrounding Ration (edit or delete me)',
@@ -353,9 +353,10 @@ function buildDailyReportText(fc){
   fc.loads.forEach((l,i)=>{
     const ration = rationById(l.rationId);
     const rationLabel = l.rationName || (ration ? ration.name : '(ration deleted)');
-    const penNames = (l.pens||[]).map(p=>`${p.penName} (${p.headCount})`).join(', ');
+    const penNames = (l.pens||[]).map(p=>penLabel(p)).join(', ');
     const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
-    lines.push(`Load ${i+1}: ${penNames} - ${totalHead} hd total - ${rationLabel} [${l.status==='done'?'Done':(l.status==='in-progress'?'In Progress':'Pending')}]`);
+    const pos = splitPosition(fc, l);
+    lines.push(`Load ${i+1}${pos?` (wagon load ${pos.n} of ${pos.of})`:''}: ${penNames} - ${totalHead} hd total - ${rationLabel} [${l.status==='done'?'Done':(l.status==='in-progress'?'In Progress':'Pending')}]`);
     (l.entries||[]).forEach(e=>{
       const name = e.ingredientName || ingredientName(e.ingredientId);
       if(e.skipped){
@@ -430,7 +431,7 @@ function buildDailyReportCsv(fc){
   fc.loads.forEach((l,i)=>{
     const ration = rationById(l.rationId);
     const rationName = l.rationName || (ration ? ration.name : '');
-    const penNames = (l.pens||[]).map(p=>p.penName).join('; ');
+    const penNames = (l.pens||[]).map(p=> penShare(p)<1 ? `${p.penName} (${Math.round(penShare(p)*100)}%)` : p.penName).join('; '); // split pen tagged w/ its share, no new columns
     const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
     (l.entries||[]).forEach(e=>{
       rows.push([
@@ -663,28 +664,40 @@ function rationWeightedDmFraction(ration){
   });
   return dmWeighted/totalPct;
 }
+// A pen's slice of its day's call that rides on THIS load. 1 = the whole
+// call (normal). Below 1 only when an over-capacity call was split and this
+// pen got cut across two wagon loads -- e.g. 0.6 here, 0.4 on the next load.
+// headCount always stays the pen's real head count; share carries the cut.
+function penShare(p){
+  const s = Number(p.share);
+  return (s>0 && s<1) ? s : 1;
+}
+// Total lb as-fed this pen gets from this load (call adjustment and share
+// applied). Single source for buildTargets, loadPenBreakdown and splitting.
+function penLoadAsFed(p, ration, dateStr){
+  const dmFraction = rationWeightedDmFraction(ration);
+  const referenceTotalAsFed = ration ? (Number(ration.referenceTotalAsFed)||0) : 0;
+  const mult = 1 + ((Number(p.adjustPct)||0)/100);
+  let full;
+  if(!p.intakeMode || p.intakeMode==='rationAsIs'){
+    full = referenceTotalAsFed * (Number(p.headCount)||0) * mult;
+  } else {
+    const dmi = targetDMIPerHead(p, dateStr) * mult;
+    const totalAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
+    full = totalAsFedPerHead * (Number(p.headCount)||0);
+  }
+  return full * penShare(p);
+}
 function buildTargets(load){
   const ration = rationById(load.rationId);
   const items = ration ? (ration.items||[]) : [];
   const totalPct = items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
-  const dmFraction = rationWeightedDmFraction(ration);
-  const referenceTotalAsFed = ration ? (Number(ration.referenceTotalAsFed)||0) : 0;
   const existingByIng = {};
   (load.entries||[]).forEach(e=>existingByIng[e.ingredientId]=e);
+  const penTotal = (load.pens||[]).reduce((s,p)=>s+penLoadAsFed(p, ration, load.date),0);
   const newEntries = items.map(it=>{
     const pctFrac = totalPct>0 ? (Number(it.pctAsFed)||0)/totalPct : 0;
-    const targetIncremental = round1((load.pens||[]).reduce((sum,p)=>{
-      const mult = 1 + ((p.adjustPct||0)/100);
-      let totalAsFedForPen;
-      if(!p.intakeMode || p.intakeMode==='rationAsIs'){
-        totalAsFedForPen = referenceTotalAsFed * (p.headCount||0) * mult;
-      } else {
-        const dmi = targetDMIPerHead(p, load.date) * mult;
-        const totalAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
-        totalAsFedForPen = totalAsFedPerHead * (p.headCount||0);
-      }
-      return sum + totalAsFedForPen * pctFrac;
-    }, 0));
+    const targetIncremental = round1(penTotal * pctFrac);
     const prior = existingByIng[it.ingredientId] || {};
     return {
       ingredientId: it.ingredientId,
@@ -748,17 +761,7 @@ function recomputeActuals(load){
 // proportionally instead of inflating the allocation past the load total.
 function loadPenBreakdown(load){
   const ration = rationById(load.rationId);
-  const dmFraction = rationWeightedDmFraction(ration);
-  const referenceTotalAsFed = ration ? (Number(ration.referenceTotalAsFed)||0) : 0;
-  const fullTargets = (load.pens||[]).map(p=>{
-    const mult = 1 + ((p.adjustPct||0)/100);
-    if(!p.intakeMode || p.intakeMode==='rationAsIs'){
-      return referenceTotalAsFed * (p.headCount||0) * mult;
-    }
-    const dmi = targetDMIPerHead(p, load.date) * mult;
-    const totalAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
-    return totalAsFedPerHead * (p.headCount||0);
-  });
+  const fullTargets = (load.pens||[]).map(p=> penLoadAsFed(p, ration, load.date));
   const fullSum = fullTargets.reduce((s,v)=>s+v,0);
   return (load.pens||[]).map((p,i)=>{
     const share = fullSum>0 ? fullTargets[i]/fullSum : 0;
@@ -769,6 +772,139 @@ function loadPenBreakdown(load){
     const targetDMIToday = (p.intakeMode && p.intakeMode!=='rationAsIs') ? targetDMIPerHead(p, load.date) : null;
     return {...p, targetTotal, actualTotal, variancePct, projectedWeightToday, targetDMIToday};
   });
+}
+
+/* ---------------- wagon capacity / splitting a big call ---------------- */
+// Settings carry one number: the most lb as-fed the mixer can hold. 0 means
+// not set, and the app never warns or splits. When a load's target is over
+// it, the load card turns red with a one-tap "Split into N loads" button --
+// the crew decides, the app never splits on its own.
+//
+// Split rule ("whole pens, balanced"): N = fewest loads that fit, each aimed
+// at total/N lb so the loads come out roughly even. Pens stay whole and in
+// the order they were added (route order). A pen only gets cut across two
+// loads when keeping it whole would push a load past ~8% over its even
+// share -- then it gets a `share` (e.g. 0.6 on one load, 0.4 on the next).
+// If whole-pen packing would leave the last load over capacity, it falls
+// back to filling every load to exactly its even share, which always fits.
+function wagonCapacity(){ return Number(state.settings.wagonCapacityLb)||0; }
+function loadHasActuals(load){
+  return (load.entries||[]).some(e=> e.actualCumulative!==null && e.actualCumulative!==undefined && e.actualCumulative!=='');
+}
+function loadOverCapacity(load){
+  const cap = wagonCapacity();
+  return cap>0 && (Number(load.totalTargetLbs)||0) > cap + 0.5;
+}
+function loadsNeededFor(load){
+  const cap = wagonCapacity();
+  return cap>0 ? Math.max(1, Math.ceil(((Number(load.totalTargetLbs)||0) - 0.5)/cap)) : 1;
+}
+function penLabel(p){
+  const s = penShare(p);
+  return `${p.penName} (${p.headCount}${s<1?` hd, ${Math.round(s*100)}% of call`:''})`;
+}
+// Which load of a split this is, e.g. {n:2, of:3}. null if not part of one.
+function splitPosition(fc, load){
+  if(!load.splitGroup || !fc) return null;
+  const grp = fc.loads.filter(l=>l.splitGroup===load.splitGroup);
+  if(grp.length<2) return null;
+  return {n: grp.indexOf(load)+1, of: grp.length};
+}
+function planSplit(load, strict){
+  const cap = wagonCapacity();
+  const ration = rationById(load.rationId);
+  const pens = (load.pens||[]).map(p=>({pen:p, lb:penLoadAsFed(p, ration, load.date)}));
+  const total = pens.reduce((s,x)=>s+x.lb,0);
+  const n = Math.max(1, Math.ceil((total-0.5)/cap));
+  const goal = total/n;
+  const wholeCeil = strict ? goal : Math.min(cap, goal*1.08);
+  const closeAt = strict ? goal : goal*0.85;
+  const out = [[]];
+  let cur = 0;
+  pens.forEach(({pen, lb})=>{
+    let left = lb;
+    while(left > 0.5){
+      const lastLoad = out.length===n;
+      if(lastLoad || cur + left <= wholeCeil + 0.5){
+        out[out.length-1].push({pen, lb:left}); cur += left; left = 0;
+      } else if(cur >= closeAt && cur>0){
+        out.push([]); cur = 0;
+      } else {
+        const part = goal - cur;
+        out[out.length-1].push({pen, lb:part}); left -= part;
+        out.push([]); cur = 0;
+      }
+    }
+  });
+  const loads = out.filter(g=>g.length>0);
+  const tooBig = loads.some(g=> g.reduce((s,x)=>s+x.lb,0) > cap + 0.5);
+  if(tooBig && !strict) return planSplit(load, true);
+  return loads.map(g=> g.map(({pen, lb})=>{
+    const penLb = penLoadAsFed(pen, ration, load.date);
+    return {pen, frac: penLb>0 ? lb/penLb : 1};
+  }));
+}
+function splitLoad(loadId){
+  const found = findLoad(loadId);
+  if(!found) return false;
+  const {fc, load} = found;
+  if(!loadOverCapacity(load)){ showToast('This load already fits the wagon'); return false; }
+  if(loadHasActuals(load)){ showToast('Scale readings already entered -- clear them before splitting'); return false; }
+  const plan = planSplit(load, false);
+  if(plan.length<2) return false;
+  const group = load.splitGroup || uid();
+  // shares are rounded to 4 places; each pen's LAST piece takes the
+  // remainder so its pieces always add back up to exactly its old share
+  const lastPieceIdx = {};
+  plan.forEach((g,gi)=> g.forEach(x=>{ lastPieceIdx[x.pen.id] = gi; }));
+  const usedShare = {};
+  const newLoads = plan.map((g,gi)=>{
+    const pens = g.map(({pen, frac})=>{
+      const s0 = penShare(pen);
+      let s = Math.round(s0*frac*10000)/10000;
+      if(lastPieceIdx[pen.id]===gi) s = Math.round((s0 - (usedShare[pen.id]||0))*10000)/10000;
+      usedShare[pen.id] = (usedShare[pen.id]||0) + s;
+      const piece = {...pen, id: uid()};
+      if(s < 0.9999) piece.share = s; else delete piece.share;
+      return piece;
+    });
+    const nl = {id:uid(), date:load.date, rationId:load.rationId,
+      startingWeight: gi===0 ? load.startingWeight : 0,
+      pens, entries:[], status:'pending', splitGroup: group};
+    buildTargets(nl);
+    return nl;
+  });
+  const idx = fc.loads.indexOf(load);
+  fc.loads.splice(idx, 1, ...newLoads);
+  saveState();
+  showToast(`Split into ${newLoads.length} loads`);
+  return true;
+}
+// For "Copy to Today" off a day that was split: rejoin the pieces into one
+// load (each pen once, full call) so today's call is figured fresh and gets
+// re-split against today's numbers if it's still too big.
+function mergeSplitGroup(loads){
+  const seen = {}, pens = [];
+  loads.forEach(l=> (l.pens||[]).forEach(p=>{
+    const key = p.rosterId || ('name:'+p.penName);
+    if(seen[key]) return;
+    seen[key] = true;
+    const c = {...p}; delete c.share;
+    pens.push(c);
+  }));
+  return {...loads[0], pens};
+}
+function capacityWarningHtml(load, btnAttr){
+  if(!loadOverCapacity(load)) return '';
+  const n = loadsNeededFor(load);
+  const canSplit = !loadHasActuals(load);
+  return `
+  <div style="margin-top:8px;padding:8px;border:2px solid var(--accent);border-radius:8px;background:#fdecec">
+    <div><b>Over wagon capacity:</b> ${fmt(load.totalTargetLbs)} lb call vs ${fmt(wagonCapacity())} lb wagon</div>
+    ${canSplit
+      ? `<button class="btn block" style="margin-top:6px" ${btnAttr}="${load.id}">Split into ${n} loads</button>`
+      : `<div class="muted" style="margin-top:4px">Scale readings already entered, so it can't be split now.</div>`}
+  </div>`;
 }
 
 /* ---------------- field delivery math ---------------- */
@@ -1012,6 +1148,21 @@ function getOrCreateFeedCall(dateStr){
   return fc;
 }
 
+// Rows for the "Repeat from <day>" card: a call that was split into several
+// wagon loads shows as ONE row and copies over as one rejoined load.
+function repeatRows(fc){
+  const rows = [], done = {};
+  fc.loads.forEach(l=>{
+    if(l.splitGroup){
+      if(done[l.splitGroup]) return;
+      done[l.splitGroup] = true;
+      const grp = fc.loads.filter(x=>x.splitGroup===l.splitGroup);
+      if(grp.length>1){ rows.push({load: mergeSplitGroup(grp), group: l.splitGroup, pieces: grp.length}); return; }
+    }
+    rows.push({load: l, group: null, pieces: 1});
+  });
+  return rows;
+}
 function renderToday(){
   const fc = state.feedCalls.find(f=>f.date===currentDate);
   const loads = fc ? fc.loads : [];
@@ -1044,16 +1195,17 @@ function renderToday(){
   const repeatCard = prevFc ? `
   <div class="card">
     <div class="muted" style="font-weight:700;margin-bottom:6px">Repeat from ${displayDate(prevFc.date)}</div>
-    ${prevFc.loads.map(l=>{
+    ${repeatRows(prevFc).map(r=>{
+      const l = r.load;
       const ration = rationById(l.rationId);
       const penNames = (l.pens||[]).map(p=>p.penName).join(', ');
       return `
       <div class="row" style="padding:6px 0;border-bottom:1px solid #eee">
         <div>
           <div>${escapeHtml(penNames)}</div>
-          <div class="muted">${ration?escapeHtml(ration.name):(l.rationName?escapeHtml(l.rationName):'(ration deleted)')}</div>
+          <div class="muted">${ration?escapeHtml(ration.name):(l.rationName?escapeHtml(l.rationName):'(ration deleted)')}${r.pieces>1?` &middot; was split into ${r.pieces} wagon loads`:''}</div>
         </div>
-        <button class="btn secondary small" data-repeatload="${l.id}" data-repeatdate="${prevFc.date}">Copy to Today &rarr;</button>
+        <button class="btn secondary small" ${r.group?`data-repeatgroup="${r.group}"`:`data-repeatload="${l.id}"`} data-repeatdate="${prevFc.date}">Copy to Today &rarr;</button>
       </div>`;
     }).join('')}
   </div>` : '';
@@ -1081,7 +1233,7 @@ function renderToday(){
 
   <div style="margin-top:12px">
     ${loads.length===0 ? `<div class="empty">No loads added for this date yet.<br>Tap "Add Load" and pick pens from your roster &mdash; combine several into one load if they share a ration.</div>` :
-      loads.map(l=>renderLoadCard(l)).join('')}
+      loads.map(l=>renderLoadCard(l, fc)).join('')}
   </div>
 
   <div style="margin-top:16px">
@@ -1159,10 +1311,11 @@ function renderFdCard(fd, readOnly){
   </div>`;
 }
 
-function renderLoadCard(load){
+function renderLoadCard(load, fc){
   const ration = rationById(load.rationId);
   const totalHead = (load.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
-  const penNames = (load.pens||[]).map(p=>`${escapeHtml(p.penName)} (${p.headCount})`).join(', ');
+  const penNames = (load.pens||[]).map(p=>escapeHtml(penLabel(p))).join(', ');
+  const pos = splitPosition(fc, load);
   const statusLabel = load.status==='done' ? 'Done' : (load.status==='in-progress'?'In Progress':'Pending');
   const badgeClass = load.status==='done' ? 'done' : 'pending';
   const varTag = load.overallVariancePct!==null ? `<span class="variance-tag ${varianceClass(load.overallVariancePct)}">${load.overallVariancePct>0?'+':''}${fmt(load.overallVariancePct)}%</span>` : '';
@@ -1171,7 +1324,7 @@ function renderLoadCard(load){
     <div class="row">
       <div>
         <div style="font-weight:700">${penNames}</div>
-        <div class="muted">${totalHead} hd total &middot; ${ration ? escapeHtml(ration.name) : '(ration deleted)'}</div>
+        <div class="muted">${pos?`<b>Wagon load ${pos.n} of ${pos.of}</b> &middot; `:''}${totalHead} hd total &middot; ${ration ? escapeHtml(ration.name) : '(ration deleted)'}</div>
       </div>
       <button class="small-x" data-delload="${load.id}">✕</button>
     </div>
@@ -1179,6 +1332,7 @@ function renderLoadCard(load){
       <div class="muted">Target: <b>${fmt(load.totalTargetLbs)} lb</b>${load.totalActualLbs!==null?` &nbsp;Actual: <b>${fmt(load.totalActualLbs)} lb</b> ${varTag}`:''}</div>
       <span class="badge ${badgeClass}">${statusLabel}</span>
     </div>
+    ${capacityWarningHtml(load, 'data-splitload')}
     <button class="btn secondary block" style="margin-top:8px" data-openload="${load.id}">${load.status==='done'?'Review Load':'Enter Load →'}</button>
   </div>`;
 }
@@ -1194,6 +1348,16 @@ function wireTabEvents(){
       const prevFc = state.feedCalls.find(f=>f.date===sourceDate);
       const sourceLoad = prevFc && prevFc.loads.find(l=>l.id===e.currentTarget.dataset.repeatload);
       if(sourceLoad) openRepeatLoadSheet(sourceLoad, sourceDate);
+    }));
+    document.querySelectorAll('[data-repeatgroup]').forEach(b=>b.addEventListener('click', e=>{
+      const sourceDate = e.currentTarget.dataset.repeatdate;
+      const prevFc = state.feedCalls.find(f=>f.date===sourceDate);
+      const grp = prevFc ? prevFc.loads.filter(l=>l.splitGroup===e.currentTarget.dataset.repeatgroup) : [];
+      if(grp.length) openRepeatLoadSheet(mergeSplitGroup(grp), sourceDate);
+    }));
+    document.querySelectorAll('[data-splitload]').forEach(b=>b.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(splitLoad(e.currentTarget.dataset.splitload)) render();
     }));
     document.querySelectorAll('[data-openload]').forEach(b=>b.addEventListener('click', ()=>{
       openLoadId = b.dataset.openload; render();
@@ -1364,11 +1528,12 @@ function openPensSheet(opts){
         anchorDate: rp?rp.anchorDate:p.anchorDate,
         adg: rp?rp.adg:p.adg,
         intakeMode: rp?rp.intakeMode:p.intakeMode,
-        intakeValue: rp?rp.intakeValue:p.intakeValue
+        intakeValue: rp?rp.intakeValue:p.intakeValue,
+        share: p.share
       };
     }
     return {source:'oneoff', rosterId:null, id:p.id, penName:p.penName, headCount:p.headCount, adjustPct:p.adjustPct,
-      anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0};
+      anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0, share:p.share};
   });
   let rationId = opts.initialRationId || state.rations[0].id;
   let startWeight = opts.initialStartWeight ?? 0;
@@ -1389,7 +1554,7 @@ function openPensSheet(opts){
           <div style="font-weight:700">${p.source==='roster'?escapeHtml(p.penName):'One-off pen'}</div>
           <button class="small-x" data-removepenrow="${idx}">✕</button>
         </div>
-        <div class="muted" style="margin-bottom:4px">${rosterInfoLine(p)}</div>
+        <div class="muted" style="margin-bottom:4px">${rosterInfoLine(p)}${penShare(p)<1?`<br><b>This load carries ${Math.round(penShare(p)*100)}% of this pen's call</b> (rest is on another wagon load)`:''}</div>
         ${p.source==='oneoff' ? `
         <label>Pen / Lot Name</label>
         <input type="text" data-penname="${idx}" value="${escapeHtml(p.penName||'')}" placeholder="e.g. Pen 4 - Steers">` : ''}
@@ -1494,14 +1659,16 @@ function openPensSheet(opts){
             anchorDate: rp?rp.anchorDate:p.anchorDate,
             adg: rp?rp.adg:p.adg,
             intakeMode: rp?rp.intakeMode:p.intakeMode,
-            intakeValue: rp?rp.intakeValue:p.intakeValue
+            intakeValue: rp?rp.intakeValue:p.intakeValue,
+            ...(penShare(p)<1 ? {share: penShare(p)} : {})
           });
         } else {
           const penName = (p.penName||'').trim();
           if(!penName) return;
           cleanPens.push({
             id: p.id||uid(), rosterId: null, penName, headCount, adjustPct,
-            anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0
+            anchorWeight:null, anchorDate:null, adg:0, intakeMode:'rationAsIs', intakeValue:0,
+            ...(penShare(p)<1 ? {share: penShare(p)} : {})
           });
         }
       });
@@ -1551,7 +1718,9 @@ function openAddLoadSheet(){
       fc.loads.push(load);
       writeBackRosterPens(pens, rationId);
       saveState();
-      showToast(pens.length>1 ? `Load added (${pens.length} pens combined)` : 'Load added');
+      showToast(loadOverCapacity(load)
+        ? `Over wagon capacity (${fmt(load.totalTargetLbs)} lb) -- tap Split on the load`
+        : (pens.length>1 ? `Load added (${pens.length} pens combined)` : 'Load added'));
       render();
     }
   });
@@ -1605,7 +1774,9 @@ function openRepeatLoadSheet(sourceLoad, sourceDate){
       fc.loads.push(load);
       writeBackRosterPens(pens, rationId);
       saveState();
-      showToast(pens.length>1 ? `Load added (${pens.length} pens combined)` : 'Load added');
+      showToast(loadOverCapacity(load)
+        ? `Over wagon capacity (${fmt(load.totalTargetLbs)} lb) -- tap Split on the load`
+        : (pens.length>1 ? `Load added (${pens.length} pens combined)` : 'Load added'));
       render();
     }
   });
@@ -2211,7 +2382,7 @@ function renderLoadEntry(loadId){
     return `
     <div class="row" style="padding:3px 0;align-items:flex-start">
       <div>${escapeHtml(p.penName)}</div>
-      <div class="muted" style="text-align:right">${p.headCount} hd${p.adjustPct?`, call ${p.adjustPct>0?'+':''}${p.adjustPct}%`:''}${info?`<br>${info}`:''}</div>
+      <div class="muted" style="text-align:right">${p.headCount} hd${p.adjustPct?`, call ${p.adjustPct>0?'+':''}${p.adjustPct}%`:''}${penShare(p)<1?`<br><b>${Math.round(penShare(p)*100)}% of this pen's call on this load</b>`:''}${info?`<br>${info}`:''}</div>
     </div>`;
   }).join('');
 
@@ -2222,7 +2393,7 @@ function renderLoadEntry(loadId){
     <button class="back" id="backBtn">←</button>
     <div>
       <div style="font-weight:700">${ration?escapeHtml(ration.name):'(ration deleted)'}</div>
-      <div class="sub">${totalHead} hd total &middot; ${displayDate(fc.date)}</div>
+      <div class="sub">${(()=>{const pos=splitPosition(fc,load);return pos?`Wagon load ${pos.n} of ${pos.of} &middot; `:'';})()}${totalHead} hd total &middot; ${displayDate(fc.date)}</div>
     </div>
   </div>
   <div class="fs-body">
@@ -2232,6 +2403,7 @@ function renderLoadEntry(loadId){
         ${load.status!=='done' ? `<button class="btn ghost small" id="editPensBtn">Edit Pens</button>` : ''}
       </div>
       <div style="margin-top:4px">${penListHtml}</div>
+      ${capacityWarningHtml(load, 'data-splitload')}
     </div>
     <div class="card">
       <label>Starting Scale Weight (lb)</label>
@@ -2264,7 +2436,7 @@ function renderLoadEntry(loadId){
       <div class="muted" style="margin-bottom:6px">Allocated by each pen's share of the ration target &mdash; there's no way to measure exactly which pen got what once it's mixed together in one load.</div>
       <div id="penBreakdownRows">${breakdown.map(p=>`
         <div class="row" style="padding:4px 0">
-          <div>${escapeHtml(p.penName)} <span class="muted">(${p.headCount} hd)</span></div>
+          <div>${escapeHtml(p.penName)} <span class="muted">(${p.headCount} hd${penShare(p)<1?`, ${Math.round(penShare(p)*100)}%`:''})</span></div>
           <div><b>${p.actualTotal!==null?fmt(p.actualTotal):fmt(p.targetTotal)} lb</b>${p.actualTotal===null?' <span class="muted">target</span>':(p.variancePct!==null?` <span class="variance-tag ${varianceClass(p.variancePct)}">${p.variancePct>0?'+':''}${fmt(p.variancePct)}%</span>`:'')}</div>
         </div>`).join('')}
       </div>
@@ -2275,6 +2447,9 @@ function renderLoadEntry(loadId){
 
   document.getElementById('backBtn').onclick = ()=>{ openLoadId=null; render(); };
   document.getElementById('editPensBtn')?.addEventListener('click', ()=> openEditPensSheet(loadId));
+  document.querySelectorAll('[data-splitload]').forEach(b=>b.addEventListener('click', e=>{
+    if(splitLoad(e.currentTarget.dataset.splitload)){ openLoadId = null; render(); }
+  }));
   // NOTE: none of the handlers below tear down / re-render the row markup while the
   // user could be mid-tap into another field. Full innerHTML replacement here would
   // detach the very input the user's next tap is landing on and silently eat the tap
@@ -2359,7 +2534,7 @@ function patchLoadEntryUI(load){
     const breakdown = loadPenBreakdown(load);
     breakdownRows.innerHTML = breakdown.map(p=>`
       <div class="row" style="padding:4px 0">
-        <div>${escapeHtml(p.penName)} <span class="muted">(${p.headCount} hd)</span></div>
+        <div>${escapeHtml(p.penName)} <span class="muted">(${p.headCount} hd${penShare(p)<1?`, ${Math.round(penShare(p)*100)}%`:''})</span></div>
         <div><b>${p.actualTotal!==null?fmt(p.actualTotal):fmt(p.targetTotal)} lb</b>${p.actualTotal===null?' <span class="muted">target</span>':(p.variancePct!==null?` <span class="variance-tag ${varianceClass(p.variancePct)}">${p.variancePct>0?'+':''}${fmt(p.variancePct)}%</span>`:'')}</div>
       </div>`).join('');
   }
@@ -2885,7 +3060,7 @@ function exportCsv(){
   dates.forEach(fc=>{
     fc.loads.forEach(l=>{
       const ration = rationById(l.rationId);
-      const penNames = (l.pens||[]).map(p=>p.penName).join('; ');
+      const penNames = (l.pens||[]).map(p=> penShare(p)<1 ? `${p.penName} (${Math.round(penShare(p)*100)}%)` : p.penName).join('; '); // split pen tagged w/ its share, no new columns
       const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
       l.entries.forEach(e=>{
         rows.push([
@@ -2911,7 +3086,7 @@ function exportCsv(){
 }
 
 function exportPenSummaryCsv(){
-  const rows = [['Date','Pen','Head Count','Call Adjustment %','Ration','Combined With','Projected Weight lb','Target DMI lb/hd','Est Target lb','Est Actual lb','Est Variance %']];
+  const rows = [['Date','Pen','Head Count','Call Adjustment %','Ration','Combined With','Projected Weight lb','Target DMI lb/hd','Est Target lb','Est Actual lb','Est Variance %','Share of Pen Call %']];
   const dates = [...state.feedCalls].sort((a,b)=>a.date.localeCompare(b.date));
   dates.forEach(fc=>{
     fc.loads.forEach(l=>{
@@ -2921,7 +3096,8 @@ function exportPenSummaryCsv(){
         const others = (l.pens||[]).filter(op=>op.id!==p.id).map(op=>op.penName).join('; ');
         rows.push([
           fc.date, p.penName, p.headCount, p.adjustPct||0, ration?ration.name:'',
-          others, p.projectedWeightToday??'', p.targetDMIToday??'', p.targetTotal, p.actualTotal??'', p.variancePct??''
+          others, p.projectedWeightToday??'', p.targetDMIToday??'', p.targetTotal, p.actualTotal??'', p.variancePct??'',
+          round1(penShare(p)*100) // <100 = pen was cut across wagon loads; sum its rows for the day
         ]);
       });
     });
@@ -2973,6 +3149,13 @@ function renderSettings(){
     <h2>Ranch Savvy Sync</h2>
     <p class="muted">Not configured on this copy. To turn on the read-only herd-count pull, set RS_ANON_KEY and RS_APP_KEY near the top of this file and deploy get_herd_summary() to the Ranch Savvy Supabase project (see ranch-savvy-sync.sql in the repo). Until then the app runs fully standalone.</p>
   </div>`}
+
+  <div class="card">
+    <h2>Wagon Capacity</h2>
+    <label>Most the mixer holds (lb as-fed)</label>
+    <input type="number" inputmode="numeric" id="wagonCapacityLb" value="${state.settings.wagonCapacityLb||''}" placeholder="blank = no limit">
+    <div class="muted" style="margin-top:6px">A load bigger than this turns red on the Today screen with a button to split it into wagon-sized loads. Pens stay whole where they can; a pen only gets cut across two loads when it has to.</div>
+  </div>
 
   <div class="card">
     <h2>Variance Colors</h2>
@@ -3039,6 +3222,7 @@ function wireSettingsEvents(){
   document.getElementById('reporterName').onchange = e=>{ state.settings.reporterName = e.target.value; saveState(); };
   document.getElementById('yellowPct').onchange = e=>{ state.settings.yellowPct = Number(e.target.value)||0; saveState(); };
   document.getElementById('redPct').onchange = e=>{ state.settings.redPct = Number(e.target.value)||0; saveState(); };
+  document.getElementById('wagonCapacityLb').onchange = e=>{ state.settings.wagonCapacityLb = Math.max(0, Number(e.target.value)||0); saveState(); };
   document.querySelectorAll('[data-renameing]').forEach(inp=>inp.addEventListener('change', e=>{
     const ing = state.ingredients.find(i=>i.id===e.target.dataset.renameing);
     if(ing){ ing.name = e.target.value.trim()||ing.name; saveState(); }
@@ -3156,6 +3340,7 @@ function migrateState(){
   if(state.settings.yellowPct===undefined) state.settings.yellowPct = 3;
   if(state.settings.redPct===undefined) state.settings.redPct = 6;
   if(state.settings.reporterName===undefined) state.settings.reporterName = '';
+  if(state.settings.wagonCapacityLb===undefined) state.settings.wagonCapacityLb = 0; // 0 = not set, no capacity checks
   delete state.settings.writePassphrase; // leftover from a briefly-shipped cloud-sync build
   delete state.settings.smForm; // leftover from the dropped Google Form posting
 
