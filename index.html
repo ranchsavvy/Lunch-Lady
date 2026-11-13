@@ -100,6 +100,7 @@
   .ing-row{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
   .ing-row select,.ing-row input{flex:2;}
   .ing-row .lbsw{flex:1;}
+  .ing-row select.unitsel{flex:0 0 74px;padding:11px 4px;}
   .ing-row .updown{display:flex;flex-direction:column;gap:2px;}
   .updown button{background:#eee;border:none;border-radius:5px;width:26px;height:22px;font-size:11px;}
   .link{color:var(--accent-dark);font-weight:600;font-size:14px;cursor:pointer;background:none;border:none;padding:0;}
@@ -242,6 +243,20 @@ function guessDmPct(name){
   return 100;
 }
 
+// Starter preset (Nov 2026): 35% ground hay / 45% silage / 20% DDGS
+// as-fed, plus a fixed 0.2 lb/hd R1800. Reference total left at 0 --
+// Starter pens are expected to carry a %BW or flat-DM target.
+function starterRation(hayId, silageId, ddgsId, r1800Id){
+  return {
+    id:uid(), name:'Starter', referenceTotalAsFed:0,
+    items:[
+      {ingredientId:hayId, pctAsFed:35},
+      {ingredientId:silageId, pctAsFed:45},
+      {ingredientId:ddgsId, pctAsFed:20},
+      {ingredientId:r1800Id, mode:'lbHd', lbPerHead:0.2}
+    ]
+  };
+}
 function defaultState(){
   const groundHay = {id: uid(), name:'Ground Hay', dmPct: guessDmPct('Ground Hay')};
   const silage = {id: uid(), name:'Silage', dmPct: guessDmPct('Silage')};
@@ -249,21 +264,14 @@ function defaultState(){
   const oats = {id: uid(), name:'Oats', dmPct: guessDmPct('Oats')};
   const corn = {id: uid(), name:'Corn', dmPct: guessDmPct('Corn')};
   const flax = {id: uid(), name:'Flax screenings', dmPct: guessDmPct('Flax screenings')};
-  const r1800 = {id: uid(), name:'R1800', dmPct: 90}; // placeholder -- replace with the product's actual DM%
+  const r1800 = {id: uid(), name:'R1800', dmPct: 99};
   return {
     version:4,
     settings:{ yellowPct:3, redPct:6, reporterName:'', wagonCapacityLb:0 },
     ingredients:[groundHay, silage, ddgs, oats, corn, flax, r1800],
-    rations:[{
-      id:uid(), name:'EXAMPLE - Backgrounding Ration (edit or delete me)',
-      referenceTotalAsFed: 48.4,
-      items:[
-        {ingredientId:silage.id, pctAsFed:82.6},
-        {ingredientId:ddgs.id, pctAsFed:9.2},
-        {ingredientId:groundHay.id, pctAsFed:7.0},
-        {ingredientId:r1800.id, pctAsFed:1.2}
-      ]
-    }],
+    rations:[starterRation(groundHay.id, silage.id, ddgs.id, r1800.id)],
+    starterPresetAdded:true,
+    r1800DmSet:true,
     pens: [],
     groups: [],
     ranchSavvy: {herds: [], fetchedAt: null},
@@ -653,8 +661,16 @@ function targetDMIPerHead(pen, dateStr){
 // off the ration's own referenceTotalAsFed (lb as-fed/hd/day) -- the one
 // absolute number a recipe-style ration carries, needed because % alone
 // has no scale.
+// A ration line can instead be a FIXED amount per head (it.mode==='lbHd',
+// amount in it.lbPerHead) -- e.g. 0.2 lb/hd of R1800. A fixed line is fed
+// at that rate no matter what intake is called; the call adjustment never
+// scales it (only a split-load share does). For DM-targeted pens its DM is
+// counted toward the pen's DM target first, and the % lines fill the rest.
+// The % shares, blended DM%, and referenceTotalAsFed all describe the %
+// lines only.
+function isFixedItem(it){ return !!it && it.mode==='lbHd'; }
 function rationWeightedDmFraction(ration){
-  const items = ration ? (ration.items||[]) : [];
+  const items = ration ? (ration.items||[]).filter(it=>!isFixedItem(it)) : [];
   const totalPct = items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
   if(totalPct<=0) return 1;
   let dmWeighted = 0;
@@ -672,32 +688,43 @@ function penShare(p){
   const s = Number(p.share);
   return (s>0 && s<1) ? s : 1;
 }
-// Total lb as-fed this pen gets from this load (call adjustment and share
-// applied). Single source for buildTargets, loadPenBreakdown and splitting.
-function penLoadAsFed(p, ration, dateStr){
-  const dmFraction = rationWeightedDmFraction(ration);
-  const referenceTotalAsFed = ration ? (Number(ration.referenceTotalAsFed)||0) : 0;
+// Lb as-fed this pen gets of EACH ration line from this load (call
+// adjustment and share applied), in ration order. Single source for
+// buildTargets, loadPenBreakdown and splitting.
+function penItemLbs(p, ration, dateStr){
+  const items = ration ? (ration.items||[]) : [];
+  const head = Number(p.headCount)||0;
+  const share = penShare(p);
   const mult = 1 + ((Number(p.adjustPct)||0)/100);
-  let full;
+  const totalPct = items.reduce((s,it)=> isFixedItem(it) ? s : s+(Number(it.pctAsFed)||0),0);
+  let pctAsFedPerHead;
   if(!p.intakeMode || p.intakeMode==='rationAsIs'){
-    full = referenceTotalAsFed * (Number(p.headCount)||0) * mult;
+    pctAsFedPerHead = (ration ? (Number(ration.referenceTotalAsFed)||0) : 0) * mult;
   } else {
-    const dmi = targetDMIPerHead(p, dateStr) * mult;
-    const totalAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
-    full = totalAsFedPerHead * (Number(p.headCount)||0);
+    const dmFraction = rationWeightedDmFraction(ration);
+    const fixedDmPerHead = items.reduce((s,it)=> isFixedItem(it)
+      ? s + (Number(it.lbPerHead)||0)*(ingredientDmPct(it.ingredientId)/100) : s, 0);
+    const dmi = Math.max(0, targetDMIPerHead(p, dateStr)*mult - fixedDmPerHead);
+    pctAsFedPerHead = dmFraction>0 ? dmi/dmFraction : 0;
   }
-  return full * penShare(p);
+  return items.map(it=>{
+    if(isFixedItem(it)) return (Number(it.lbPerHead)||0) * head * share;
+    const frac = totalPct>0 ? (Number(it.pctAsFed)||0)/totalPct : 0;
+    return pctAsFedPerHead * frac * head * share;
+  });
+}
+// Total lb as-fed this pen gets from this load, every line included.
+function penLoadAsFed(p, ration, dateStr){
+  return penItemLbs(p, ration, dateStr).reduce((s,v)=>s+v,0);
 }
 function buildTargets(load){
   const ration = rationById(load.rationId);
   const items = ration ? (ration.items||[]) : [];
-  const totalPct = items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
   const existingByIng = {};
   (load.entries||[]).forEach(e=>existingByIng[e.ingredientId]=e);
-  const penTotal = (load.pens||[]).reduce((s,p)=>s+penLoadAsFed(p, ration, load.date),0);
-  const newEntries = items.map(it=>{
-    const pctFrac = totalPct>0 ? (Number(it.pctAsFed)||0)/totalPct : 0;
-    const targetIncremental = round1(penTotal * pctFrac);
+  const perPen = (load.pens||[]).map(p=>penItemLbs(p, ration, load.date));
+  const newEntries = items.map((it,idx)=>{
+    const targetIncremental = round1(perPen.reduce((s,arr)=>s+(arr[idx]||0),0));
     const prior = existingByIng[it.ingredientId] || {};
     return {
       ingredientId: it.ingredientId,
@@ -2854,7 +2881,7 @@ function renderRations(){
           <div style="font-weight:700">${escapeHtml(r.name)}</div>
           <div class="muted">${r.items.length} ingredients &middot; ${fmt(r.referenceTotalAsFed||0)} lb as-fed/hd/day reference &middot; ~${fmt(dmFrac*100)}% DM overall</div>
           <ul style="margin:8px 0 0 18px;padding:0;font-size:13px;color:var(--sub)">
-            ${r.items.map(it=>`<li>${escapeHtml(ingredientName(it.ingredientId))}: ${fmt(it.pctAsFed)}% as-fed</li>`).join('')}
+            ${r.items.map(it=>`<li>${escapeHtml(ingredientName(it.ingredientId))}: ${isFixedItem(it)?`${fmt(it.lbPerHead)} lb/hd (fixed)`:`${fmt(it.pctAsFed)}% as-fed`}</li>`).join('')}
           </ul>
           <div class="row" style="margin-top:10px;gap:6px">
             <button class="btn secondary small" data-editration="${r.id}">Edit</button>
@@ -2879,6 +2906,10 @@ function renderRationEditor(rationId){
   function rowHint(idx){
     const it = draft.items[idx];
     const dmPct = ingredientDmPct(it.ingredientId);
+    if(isFixedItem(it)){
+      const lb = Number(it.lbPerHead)||0;
+      return `DM ${fmt(dmPct)}% &rarr; fixed ${fmt(lb)} lb as-fed/hd (${(lb*dmPct/100).toFixed(2)} lb DM), not scaled by intake or call adjustment`;
+    }
     const pct = Number(it.pctAsFed)||0;
     const refTotal = Number(draft.referenceTotalAsFed)||0;
     const asFedAtRef = refTotal>0 ? round1(refTotal * pct/100) : null;
@@ -2893,7 +2924,11 @@ function renderRationEditor(rationId){
           ${state.ingredients.map(ing=>`<option value="${ing.id}" ${ing.id===it.ingredientId?'selected':''}>${escapeHtml(ing.name)}</option>`).join('')}
           <option value="__new__">➕ New ingredient...</option>
         </select>
-        <input class="lbsw" type="number" inputmode="decimal" data-pct="${idx}" value="${it.pctAsFed}" placeholder="% as-fed">
+        <input class="lbsw" type="number" inputmode="decimal" data-pct="${idx}" value="${isFixedItem(it)?(it.lbPerHead??''):it.pctAsFed}" placeholder="${isFixedItem(it)?'lb/hd':'% as-fed'}">
+        <select class="unitsel" data-unitsel="${idx}">
+          <option value="pct" ${isFixedItem(it)?'':'selected'}>% mix</option>
+          <option value="lbHd" ${isFixedItem(it)?'selected':''}>lb/hd</option>
+        </select>
         <div class="updown">
           <button data-up="${idx}" ${idx===0?'disabled':''}>▲</button>
           <button data-down="${idx}" ${idx===draft.items.length-1?'disabled':''}>▼</button>
@@ -2904,10 +2939,11 @@ function renderRationEditor(rationId){
   }
 
   function totalsLineHtml(){
-    const totalPct = draft.items.reduce((s,it)=>s+(Number(it.pctAsFed)||0),0);
+    const totalPct = draft.items.reduce((s,it)=> isFixedItem(it) ? s : s+(Number(it.pctAsFed)||0),0);
     const dmFrac = rationWeightedDmFraction(draft);
     const offBy = Math.abs(totalPct-100);
-    return `Total: <b class="${offBy>0.5?'text-warn':''}">${fmt(totalPct)}%</b>${offBy>0.5?' (aim for 100% — targets still work off whatever it sums to, but it’s easy to lose track otherwise)':''} &middot; Mix is ~${fmt(dmFrac*100)}% DM overall.`;
+    const fixedLb = draft.items.reduce((s,it)=> isFixedItem(it) ? s+(Number(it.lbPerHead)||0) : s,0);
+    return `% lines total: <b class="${offBy>0.5?'text-warn':''}">${fmt(totalPct)}%</b>${offBy>0.5?' (aim for 100% — targets still work off whatever it sums to, but it’s easy to lose track otherwise)':''} &middot; Mix is ~${fmt(dmFrac*100)}% DM overall.${draft.items.some(isFixedItem)?` Plus ${fmt(round1(fixedLb*100)/100)} lb/hd of fixed lines on top.`:''}`;
   }
 
   function refreshRowHints(){
@@ -2931,8 +2967,8 @@ function renderRationEditor(rationId){
         <input type="text" id="rationName" value="${escapeHtml(draft.name)}" placeholder="e.g. Backgrounder Grower">
         <label style="margin-top:12px">Reference Total Mix Amount (lb as-fed/hd/day)</label>
         <input type="number" inputmode="decimal" id="refTotal" value="${draft.referenceTotalAsFed||0}" placeholder="e.g. 48">
-        <div class="muted" style="margin-top:4px">Used for pens set to "Use ration as entered," and to show reference pounds per ingredient below. Not needed if every pen using this ration has its own DM intake target (%BW or flat DM, set on the Pens tab).</div>
-        <label style="margin-top:12px">Ingredients (% of total mix, as-fed basis)</label>
+        <div class="muted" style="margin-top:4px">Covers the % lines only (fixed lb/hd lines are added on top). Used for pens set to "Use ration as entered," and to show reference pounds per ingredient below. Not needed if every pen using this ration has its own DM intake target (%BW or flat DM, set on the Pens tab).</div>
+        <label style="margin-top:12px">Ingredients (% of total mix as-fed, or a fixed lb/hd)</label>
         <div id="ingRows">${rowsHtml()}</div>
         <button class="link" id="addIngRow" style="margin-top:8px">+ Add ingredient row</button>
         <div class="muted" style="margin-top:10px" id="ratioTotalsLine">${totalsLineHtml()}</div>
@@ -2965,8 +3001,15 @@ function renderRationEditor(rationId){
     }));
     document.querySelectorAll('[data-pct]').forEach(inp=>inp.addEventListener('input', e=>{
       const idx = Number(e.target.dataset.pct);
-      draft.items[idx].pctAsFed = Number(e.target.value)||0;
+      if(isFixedItem(draft.items[idx])) draft.items[idx].lbPerHead = Number(e.target.value)||0;
+      else draft.items[idx].pctAsFed = Number(e.target.value)||0;
       refreshRowHints();
+    }));
+    document.querySelectorAll('[data-unitsel]').forEach(sel=>sel.addEventListener('change', e=>{
+      const it = draft.items[Number(e.target.dataset.unitsel)];
+      if(e.target.value==='lbHd'){ it.mode='lbHd'; it.lbPerHead = it.lbPerHead||0; delete it.pctAsFed; }
+      else { delete it.mode; delete it.lbPerHead; it.pctAsFed = it.pctAsFed||0; }
+      paint();
     }));
     document.querySelectorAll('[data-ingsel]').forEach(sel=>sel.addEventListener('change', e=>{
       const idx = Number(e.target.dataset.ingsel);
@@ -3414,6 +3457,28 @@ function migrateState(){
     });
   }
   state.version = 4;
+
+  // Nov 2026, one time per phone: add the Starter preset and drop the
+  // untouched EXAMPLE ration. A renamed example (no longer starting with
+  // "EXAMPLE") is left alone. Past loads keep their own name snapshots.
+  if(!state.starterPresetAdded){
+    const ingByName = (name, dm)=>{
+      let ing = state.ingredients.find(i=>(i.name||'').trim().toLowerCase()===name.toLowerCase());
+      if(!ing){ ing = {id:uid(), name, dmPct: dm ?? guessDmPct(name)}; state.ingredients.push(ing); }
+      return ing.id;
+    };
+    state.rations = state.rations.filter(r=>!/^EXAMPLE\b/i.test(r.name||''));
+    if(!state.rations.some(r=>(r.name||'').trim().toLowerCase()==='starter')){
+      state.rations.push(starterRation(ingByName('Ground Hay'), ingByName('Silage'), ingByName('DDGS'), ingByName('R1800', 99)));
+    }
+    state.starterPresetAdded = true;
+  }
+  // Nov 2026, one time per phone: R1800 is 99% DM. Only replaces the old
+  // 90% placeholder -- a value someone already corrected is left alone.
+  if(!state.r1800DmSet){
+    state.ingredients.forEach(i=>{ if(/^r1800$/i.test((i.name||'').trim()) && Number(i.dmPct)===90) i.dmPct = 99; });
+    state.r1800DmSet = true;
+  }
 
   // Existing entries keep their historically-recorded targets; only refresh
   // derived totals/status. Only truly-empty loads get a fresh buildTargets.
