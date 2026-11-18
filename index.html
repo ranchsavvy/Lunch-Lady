@@ -71,7 +71,11 @@
   table.load td{padding:7px 4px;border-bottom:1px solid #eee;vertical-align:middle;}
   table.load input[type=number]{padding:9px 4px;font-size:16px;width:100%;min-width:0;}
   table.load td:nth-child(3){width:78px;}
-  .cum-target{font-size:22px;font-weight:800;color:var(--ink);margin-top:2px;line-height:1.15;}
+  table.load td:nth-child(2){white-space:nowrap;}
+  .inc-target{font-size:22px;font-weight:700;color:var(--ink);line-height:1.15;}
+  .inc-target small{font-size:12px;font-weight:600;color:var(--sub);}
+  .cum-label{font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:6px;}
+  .cum-target{font-size:30px;font-weight:800;color:var(--ink);line-height:1.05;}
   .text-warn{color:var(--red);}
   .variance-tag{display:inline-block;padding:2px 8px;border-radius:12px;font-weight:700;font-size:12px;}
   .v-green{background:var(--green-bg);color:var(--green);}
@@ -2389,7 +2393,7 @@ function renderLoadEntry(loadId){
         <div style="font-weight:600">${escapeHtml(ingredientName(e.ingredientId))}</div>
         <div class="checkbox-row muted"><input type="checkbox" id="skipCb-${idx}" data-skip="${idx}" ${e.skipped?'checked':''}> not fed today</div>
       </td>
-      <td id="targetCell-${idx}"><div class="muted">${fmt(e.targetIncremental)} lb</div><div class="cum-target">cum ${fmt(e.targetCumulative)}</div></td>
+      <td id="targetCell-${idx}">${targetCellHtml(e)}</td>
       <td>
         <input type="number" inputmode="decimal" id="actualInput-${idx}" data-actual="${idx}" placeholder="0" value="${e.actualCumulative!==null&&e.actualCumulative!==undefined?e.actualCumulative:''}" ${e.skipped?'disabled':''}>
       </td>
@@ -2539,12 +2543,21 @@ function renderLoadEntry(loadId){
   };
 }
 
+// Target column on the load-entry screen. The scale target is shown rounded
+// to the nearest 10 lb (display only) -- nobody can stop the auger on an
+// exact pound (ingredient weight shows whole lb). All variance/rebasing math still runs on the exact numbers.
+function round10(n){ return Math.round((Number(n)||0)/10)*10; }
+function targetCellHtml(e){
+  return `<div class="inc-target">${Math.round(Number(e.targetIncremental)||0).toLocaleString()} <small>lb</small></div>`
+       + `<div class="cum-label">scale to</div><div class="cum-target">${round10(e.targetCumulative).toLocaleString()}</div>`;
+}
+
 // Patches the numbers on screen after an edit, without replacing any input
 // element -- safe to call from 'input'/'change' handlers mid-interaction.
 function patchLoadEntryUI(load){
   load.entries.forEach((e,idx)=>{
     const targetCell = document.getElementById('targetCell-'+idx);
-    if(targetCell) targetCell.innerHTML = `<div class="muted">${fmt(e.targetIncremental)} lb</div><div class="cum-target">cum ${fmt(e.targetCumulative)}</div>`;
+    if(targetCell) targetCell.innerHTML = targetCellHtml(e);
     const varCell = document.getElementById('varCell-'+idx);
     if(varCell){
       const varTag = e.variancePct!==null && !e.skipped
