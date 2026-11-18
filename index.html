@@ -166,7 +166,7 @@ const RS_APP_KEY  = 'k9Trx2mWq8vBn4Lp7cYd3fHs6jZa'; // must match the key hardco
 
 /* ---------------- Salt & mineral ---------------- */
 // Salt/mineral drops are logged per herd and go on the daily report with
-// everything else fed that day -- same Drive/email report, no separate
+// everything else fed that day -- same Drive report, no separate
 // destination. Herds come from Ranch Savvy (see smHerdOptions); SM_HERDS is
 // only the stand-in list before the first Ranch Savvy pull.
 // To add, rename, or retire a mineral product, edit SM_MINERAL_TYPES:
@@ -330,13 +330,12 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
-/* ---------------- daily report (local file / mailto -- no hosting, no accounts) ---------------- */
+/* ---------------- daily report (local file -- no hosting, no accounts) ---------------- */
 // A day's "report" bundles every load logged that day plus a free-text
-// comments box, and leaves this phone two ways: a Save-to-Drive share (or a
-// plain file download if the native share sheet isn't available) and an
-// emailed draft. Both are manual, deliberate taps -- there's no server to
-// silently retry through, so fc.reportDriveAt / fc.reportEmailAt are just a
-// local checklist ("did I already do this today"), not a delivery receipt.
+// comments box, and leaves this phone one way: a Save-to-Drive share (or a
+// plain file download if the native share sheet isn't available). It's a
+// manual, deliberate tap -- there's no server to silently retry through, so
+// fc.reportDriveAt is just a local checklist ("did I already do this today"), not a delivery receipt.
 // Since multiple phones each keep their own separate local data, whichever
 // phone generates the report is the one whose name (Settings tab) appears
 // in it -- that's the attribution, no shared backend needed for it.
@@ -352,94 +351,22 @@ function feedCallHasContent(fc){
 function pendingReportDates(){
   const today = todayStr();
   return state.feedCalls
-    .filter(fc=> fc.date < today && feedCallHasContent(fc) && (!fc.reportDriveAt || !fc.reportEmailAt))
+    .filter(fc=> fc.date < today && feedCallHasContent(fc) && !fc.reportDriveAt)
     .map(fc=>fc.date)
     .sort();
 }
 
-function buildDailyReportText(fc){
-  const lines = [];
-  lines.push(`Feed report - ${displayDate(fc.date)}`);
-  lines.push(`Logged by: ${reporterName()}`);
-  lines.push('');
-  fc.loads.forEach((l,i)=>{
-    const ration = rationById(l.rationId);
-    const rationLabel = l.rationName || (ration ? ration.name : '(ration deleted)');
-    const penNames = (l.pens||[]).map(p=>penLabel(p)).join(', ');
-    const totalHead = (l.pens||[]).reduce((s,p)=>s+(p.headCount||0),0);
-    const pos = splitPosition(fc, l);
-    lines.push(`Load ${i+1}${pos?` (wagon load ${pos.n} of ${pos.of})`:''}: ${penNames} - ${totalHead} hd total - ${rationLabel} [${l.status==='done'?'Done':(l.status==='in-progress'?'In Progress':'Pending')}]`);
-    (l.entries||[]).forEach(e=>{
-      const name = e.ingredientName || ingredientName(e.ingredientId);
-      if(e.skipped){
-        lines.push(`  ${name}: skipped`);
-      } else {
-        const actual = e.actualIncremental!=null ? `${fmt(e.actualIncremental)} lb` : 'not entered';
-        const varPct = e.variancePct!=null ? ` (${e.variancePct>0?'+':''}${fmt(e.variancePct)}%)` : '';
-        lines.push(`  ${name}: target ${fmt(e.targetIncremental)} lb / actual ${actual}${varPct}`);
-      }
-    });
-    lines.push(`  Load total: target ${fmt(l.totalTargetLbs)} lb / actual ${l.totalActualLbs!=null?fmt(l.totalActualLbs):'-'} lb`);
-    lines.push('');
-  });
-  const fds = fc.fieldDeliveries||[];
-  fds.forEach((fd,i)=>{
-    const t = fdTotals(fd);
-    lines.push(`Field delivery ${i+1}: ${fd.groupName} - ${fd.headCount} hd - covers ${fd.daysCovered} day${fd.daysCovered==1?'':'s'}`);
-    (fd.lines||[]).forEach(l=>{
-      if(l.mode==='count'){
-        lines.push(`  ${fdIngName(l)}: ${fmt(l.count)} x ${fmt(l.unitWeight)} lb = ${fmt(fdLineLbs(l))} lb`);
-      } else {
-        lines.push(`  ${fdIngName(l)}: ${fmt(fdLineLbs(l))} lb (estimated)`);
-      }
-    });
-    lines.push(`  Delivered ${fmt(t.actual)} lb / target ${fmt(t.target)} lb${t.variancePct!==null?` (${t.variancePct>0?'+':''}${fmt(t.variancePct)}%)`:''}`);
-    if(t.perHdDay!==null) lines.push(`  = ${fmt(t.perHdDay)} lb/hd/day vs target rate ${fmt(fd.targetRate)}`);
-    lines.push('');
-  });
-  const bls = fc.bales||[];
-  bls.forEach((b,i)=>{
-    lines.push(`Bales ${i+1}: ${b.herd}${b.headCount!=null?` - ${b.headCount} hd`:''} - ${b.mode==='grazed'?'bale grazing':'hauled to herd'}`);
-    (b.lines||[]).forEach(l=> lines.push(`  ${baleLineText(l)}`));
-    lines.push(`  Total: ${baleSummary(b)}`);
-    const prev = balePrevStretch(b, fc.date);
-    if(prev) lines.push(`  Previous bales ${usShort(prev.date)} (${fmt(prev.lbs)} lb) lasted ${prev.days} day${prev.days===1?'':'s'}${prev.perHdDay!==null?` = ${fmt(prev.perHdDay)} lb/hd/day`:''}`);
-    if((b.notes||'').trim()) lines.push(`  Note: ${b.notes.trim()}`);
-    lines.push('');
-  });
-  const sms = fc.saltMineral||[];
-  sms.forEach((e,i)=>{
-    lines.push(`Salt & mineral ${i+1}: ${e.herd}${e.headCount!=null?` - ${e.headCount} hd`:''}`);
-    smSummaryParts(e).forEach(p=>lines.push(`  ${p}`));
-    if((e.notes||'').trim()) lines.push(`  Note: ${e.notes.trim()}`);
-    lines.push('');
-  });
-  const dayTarget = fc.loads.reduce((s,l)=>s+(l.totalTargetLbs||0),0);
-  const anyDayActual = fc.loads.some(l=>l.totalActualLbs!=null);
-  const dayActual = fc.loads.reduce((s,l)=> l.totalActualLbs!=null ? s+l.totalActualLbs : s, 0);
-  // mixer totals and field-delivery totals stay SEPARATE on purpose: a
-  // 4-day bale drop lumped into one day's mixer total would misstate both.
-  const mixerLabel = fds.length ? 'Mixer total' : 'Day total';
-  if(fc.loads.length){
-    lines.push(`${mixerLabel} target: ${fmt(dayTarget)} lb`);
-    lines.push(`${mixerLabel} actual: ${anyDayActual?fmt(dayActual):'-'} lb`);
-  }
-  if(fds.length){
-    const fdDelivered = fds.reduce((s,fd)=>s+fdTotals(fd).actual,0);
-    lines.push(`Field deliveries total: ${fmt(fdDelivered)} lb delivered (targets judged per delivery over the days each covers)`);
-  }
-  if(bls.length){
-    const n = bls.reduce((s,b)=>s+baleCount(b),0), lb = bls.reduce((s,b)=>s+baleLbs(b),0);
-    lines.push(`Bales total: ${fmt(n)} bale${n===1?'':'s'}, ~${fmt(lb)} lb`);
-  }
-  lines.push('');
-  lines.push('--- Comments ---');
-  lines.push((fc.comments||'').trim() || '(none)');
-  return lines.join('\n');
-}
-
+const REPORT_HEADER = ['Date','Logged By','Load #','Pens','Total Head','Ration','Ingredient','Target lb','Actual lb','Variance lb','Variance %','Skipped'];
 function buildDailyReportCsv(fc){
-  const rows = [['Date','Logged By','Load #','Pens','Total Head','Ration','Ingredient','Target lb','Actual lb','Variance lb','Variance %','Skipped']];
+  const rows = [REPORT_HEADER, ...dailyReportRows(fc)];
+  rows.push([]);
+  rows.push(['Comments', (fc.comments||'').trim() || '(none)']);
+  return rows.map(r=>r.map(csvEscape).join(',')).join('\n');
+}
+// Every data row a day contributes to a report (no header, no comments).
+// Shared by the daily report and the monthly report so the two never drift.
+function dailyReportRows(fc){
+  const rows = [];
   fc.loads.forEach((l,i)=>{
     const ration = rationById(l.rationId);
     const rationName = l.rationName || (ration ? ration.name : '');
@@ -478,9 +405,7 @@ function buildDailyReportCsv(fc){
   // both the unit count it bills on and a weight.
   baleCsvRows(fc).forEach(r=>rows.push(r));
   smCsvRows(fc).forEach(r=>rows.push(r));
-  rows.push([]);
-  rows.push(['Comments', (fc.comments||'').trim() || '(none)']);
-  return rows.map(r=>r.map(csvEscape).join(',')).join('\n');
+  return rows;
 }
 
 async function shareReportToDrive(fc){
@@ -507,14 +432,79 @@ async function shareReportToDrive(fc){
   render();
 }
 
-function emailReport(fc){
-  let text = buildDailyReportText(fc);
-  const MAX = 1800; // mailto body length is unreliable much past this across mail apps
-  if(text.length > MAX) text = text.slice(0, MAX) + '\n\n[report truncated for email -- full detail in the Drive copy]';
-  const subject = `Feed report - ${fc.date}`;
-  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-  fc.reportEmailAt = new Date().toISOString();
-  saveState();
+/* ---------------- monthly report ---------------- */
+// One file per phone per month: every day's report rows for that month
+// in one upload, same columns as the daily CSV, then the day comments.
+// Reminder shows on the Today tab from the LAST day of the month until
+// it's saved -- same idea as the missed-daily-report banner. Saving on
+// the last day before that day's feeding is entered? Re-save it from
+// Settings; the newer file replaces nothing, so the latest one counts.
+// state.monthlyReports[YYYY-MM].sentAt is a local checklist only.
+// Months before state.monthlyReportsFrom (the month this feature first
+// ran on this phone) are never nagged about.
+function monthKey(dstr){ return dstr.slice(0,7); }
+function monthLabel(m){
+  const [y,mo] = m.split('-').map(Number);
+  return new Date(y, mo-1, 1).toLocaleDateString(undefined,{month:'long', year:'numeric'});
+}
+function isLastDayOfMonth(dstr){
+  const [y,m,d] = dstr.split('-').map(Number);
+  return new Date(y, m, 0).getDate()===d;
+}
+function feedCallsInMonth(m){
+  return state.feedCalls.filter(fc=> monthKey(fc.date)===m && feedCallHasContent(fc))
+    .sort((a,b)=> a.date.localeCompare(b.date));
+}
+function monthsWithActivity(){
+  return [...new Set(state.feedCalls.filter(feedCallHasContent).map(fc=>monthKey(fc.date)))].sort();
+}
+function monthlyReportSentAt(m){
+  return (state.monthlyReports && state.monthlyReports[m] && state.monthlyReports[m].sentAt) || null;
+}
+function pendingMonthlyReports(){
+  const today = todayStr(), cur = monthKey(today);
+  const from = state.monthlyReportsFrom || cur;
+  return monthsWithActivity().filter(m=>
+    m >= from && !monthlyReportSentAt(m) &&
+    (m < cur || (m===cur && isLastDayOfMonth(today))));
+}
+function buildMonthlyReportCsv(m){
+  const days = feedCallsInMonth(m);
+  const rows = [REPORT_HEADER];
+  days.forEach(fc=> dailyReportRows(fc).forEach(r=>rows.push(r)));
+  rows.push([]);
+  rows.push(['Day comments']);
+  rows.push(['Date','Comment']);
+  const withComments = days.filter(fc=>(fc.comments||'').trim());
+  if(withComments.length) withComments.forEach(fc=> rows.push([fc.date, fc.comments.trim()]));
+  else rows.push(['(none)']);
+  return rows.map(r=>r.map(csvEscape).join(',')).join('\n');
+}
+async function shareMonthlyReport(m){
+  const csv = buildMonthlyReportCsv(m);
+  const who = (state.settings.reporterName||'').trim().replace(/[^\w .-]/g,'') || 'name not set';
+  // title must NOT start with "Feed report" -- that's how the daily files are found
+  const filename = `Monthly feed report ${m} - ${who}.csv`;
+  const markSent = ()=>{
+    state.monthlyReports = state.monthlyReports || {};
+    state.monthlyReports[m] = {sentAt: new Date().toISOString()};
+    saveState();
+  };
+  const file = new File([csv], filename, {type:'text/csv'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({files:[file], title:`Monthly feed report ${m}`});
+      markSent();
+      showToast('Shared - pick Drive to save it there');
+      render();
+      return;
+    }catch(e){
+      if(e && e.name==='AbortError') return;
+    }
+  }
+  downloadTextFile(csv, filename, 'text/csv');
+  markSent();
+  showToast('Downloaded - upload it to Drive from your Files app');
   render();
 }
 
@@ -1210,6 +1200,13 @@ function renderToday(){
     <b>${pending.length} earlier day${pending.length===1?'':'s'} still need${pending.length===1?'s':''} a report sent.</b>
     <div class="muted" style="margin-top:4px">Tap to jump to ${displayDate(pending[0])}${pending.length>1?' (oldest first)':''}.</div>
   </div>` : '';
+  const pendingMonths = currentDate===todayStr() ? pendingMonthlyReports() : [];
+  const monthBanner = pendingMonths.length ? `
+  <div class="card" style="border-color:var(--yellow);background:var(--yellow-bg)">
+    <b>Monthly report${pendingMonths.length===1?'':'s'} not sent yet.</b>
+    <div class="muted" style="margin-top:4px">Saves every feeding logged on this phone for the month to Drive in one file.${pendingMonths.includes(monthKey(todayStr()))?' Last day of the month -- send it after today\'s feeding is entered.':''}</div>
+    ${pendingMonths.map(m=>`<button class="btn block" style="margin-top:8px" data-sendmonth="${m}">Save ${monthLabel(m)} report to Drive</button>`).join('')}
+  </div>` : '';
 
   const reportCard = feedCallHasContent(fc) ? `
   <div class="card">
@@ -1218,7 +1215,6 @@ function renderToday(){
     <textarea id="reportComments" rows="3" placeholder="e.g. scale reading off on the DDGS auger, short on hay">${escapeHtml(fc.comments||'')}</textarea>
     <div class="field-row" style="margin-top:10px">
       <button class="btn ${fc.reportDriveAt?'ghost':'secondary'} block" id="saveToDriveBtn">${fc.reportDriveAt?'✅ Saved to Drive':'Save to Drive'}</button>
-      <button class="btn ${fc.reportEmailAt?'ghost':'secondary'} block" id="emailReportBtn">${fc.reportEmailAt?'✅ Emailed':'Email Report'}</button>
     </div>
   </div>` : '';
 
@@ -1243,6 +1239,7 @@ function renderToday(){
 
   return `
   ${banner}
+  ${monthBanner}
   <div class="card">
     <div class="row">
       <button class="link" id="prevDay">◀ prev</button>
@@ -1441,6 +1438,9 @@ function wireTabEvents(){
         saveState(); render();
       });
     }));
+    document.querySelectorAll('[data-sendmonth]').forEach(b=>b.addEventListener('click', e=>{
+      shareMonthlyReport(e.currentTarget.dataset.sendmonth);
+    }));
     document.getElementById('pendingReportBanner')?.addEventListener('click', e=>{
       currentDate = e.currentTarget.dataset.jumpdate; render();
     });
@@ -1459,10 +1459,6 @@ function wireTabEvents(){
     document.getElementById('saveToDriveBtn')?.addEventListener('click', ()=>{
       const fc = snapshotComments();
       if(fc) shareReportToDrive(fc);
-    });
-    document.getElementById('emailReportBtn')?.addEventListener('click', ()=>{
-      const fc = snapshotComments();
-      if(fc) emailReport(fc);
     });
   }
   if(currentTab==='pens'){
@@ -3184,12 +3180,24 @@ function renderSettings(){
   return `
   <div class="card">
     <h2>Daily Report</h2>
-    <p class="muted">Each done load's numbers roll into that day's report -- a text/CSV summary you save to Drive and email out yourself, once a day, from the Today tab. Your name below is what shows up in the report so it's clear which phone it came from.</p>
+    <p class="muted">Each done load's numbers roll into that day's report -- a CSV summary you save to Drive once a day from the Today tab. Your name below is what shows up in the report so it's clear which phone it came from.</p>
     <label>Your Name</label>
     <input type="text" id="reporterName" value="${escapeHtml(state.settings.reporterName||'')}" placeholder="e.g. Till">
     ${pending.length ? `
     <div class="muted" style="margin-top:8px">${pending.length} day${pending.length===1?'':'s'} still need${pending.length===1?'s':''} a report sent: ${pending.map(d=>displayDate(d)).join(', ')}.</div>
     ` : `<div class="muted" style="margin-top:8px">Every past day has a report on file.</div>`}
+  </div>
+
+  <div class="card">
+    <h2>Monthly Report</h2>
+    <p class="muted">One file per month with every feeding logged on this phone -- loads, bales, supplements, and day comments. The Today tab reminds you on the last day of the month until it's saved. Re-save a month here if anything was added after it went out; the newest file is the one to use.</p>
+    ${monthsWithActivity().length ? monthsWithActivity().slice(-6).reverse().map(m=>{
+      const at = monthlyReportSentAt(m);
+      return `<div class="row" style="padding:6px 0;border-bottom:1px solid #eee">
+        <div><div>${monthLabel(m)}</div><div class="muted">${feedCallsInMonth(m).length} day${feedCallsInMonth(m).length===1?'':'s'} logged &middot; ${at?'saved '+new Date(at).toLocaleDateString(undefined,{month:'short',day:'numeric'}):'not saved yet'}</div></div>
+        <button class="btn ${at?'ghost':'secondary'} small" data-sendmonth="${m}">${at?'Re-save':'Save to Drive'}</button>
+      </div>`;
+    }).join('') : `<div class="muted">No feeding logged on this phone yet.</div>`}
   </div>
 
   ${ranchSavvyConfigured() ? `
@@ -3269,6 +3277,9 @@ function renderSettings(){
 }
 
 function wireSettingsEvents(){
+  document.querySelectorAll('[data-sendmonth]').forEach(b=>b.addEventListener('click', e=>{
+    shareMonthlyReport(e.currentTarget.dataset.sendmonth);
+  }));
   document.getElementById('rsRefreshSettingsBtn')?.addEventListener('click', async e=>{
     e.target.disabled = true; e.target.textContent = 'Refreshing...';
     await refreshRanchSavvy(true);
@@ -3396,6 +3407,10 @@ function migrateState(){
   if(state.settings.yellowPct===undefined) state.settings.yellowPct = 3;
   if(state.settings.redPct===undefined) state.settings.redPct = 6;
   if(state.settings.reporterName===undefined) state.settings.reporterName = '';
+  state.monthlyReports = state.monthlyReports || {};
+  // monthly-report reminders start with the month this version first runs,
+  // so a phone isn't nagged about old test months
+  if(!state.monthlyReportsFrom) state.monthlyReportsFrom = todayStr().slice(0,7);
   if(state.settings.wagonCapacityLb===undefined) state.settings.wagonCapacityLb = 0; // 0 = not set, no capacity checks
   delete state.settings.writePassphrase; // leftover from a briefly-shipped cloud-sync build
   delete state.settings.smForm; // leftover from the dropped Google Form posting
