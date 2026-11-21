@@ -379,6 +379,12 @@ function dailyReportRows(fc){
         e.actualIncremental??'', e.variance??'', e.variancePct??'', e.skipped?'yes':'no'
       ]);
     });
+    penAllocationRows(l).forEach(a=>{
+      rows.push([
+        fc.date, reporterName(), `${i+1}-${a.letter}`, a.penName, a.headCount, `${rationName} - allocated to pen`,
+        a.ingredientName, a.target, a.actual??'', a.variance??'', a.variancePct??'', a.skipped?'yes':'no'
+      ]);
+    });
   });
   // Field deliveries ride in the SAME columns (no schema change to the
   // accumulating daily CSVs): Load # is 'FD1', 'FD2'...; Pens carries the
@@ -723,6 +729,9 @@ function buildTargets(load){
     return {
       ingredientId: it.ingredientId,
       targetIncremental,
+      // each pen's calculated lb of this ingredient, frozen here so the
+      // report's per-pen allocation never drifts if the ration is edited later
+      penTargets: (load.pens||[]).map((p,pi)=>({penId:p.id, lb: perPen[pi][idx]||0})),
       targetCumulative: 0, // set below in recomputeActuals, which owns the cumulative rebasing
       actualCumulative: prior.actualCumulative ?? null,
       skipped: prior.skipped || false
@@ -793,6 +802,74 @@ function loadPenBreakdown(load){
     const targetDMIToday = (p.intakeMode && p.intakeMode!=='rationAsIs') ? targetDMIPerHead(p, load.date) : null;
     return {...p, targetTotal, actualTotal, variancePct, projectedWeightToday, targetDMIToday};
   });
+}
+
+// Per-pen, per-ingredient allocation of a combined load, for the reports.
+// Assumes the load was fed as calculated: each pen gets the same fraction
+// of an ingredient's ACTUAL lb as it had of that ingredient's TARGET.
+// Done per ingredient (not one share per pen) because fixed lb/hd lines
+// split by head count while % lines split by each pen's intake target.
+// Shares come from the penTargets snapshot taken in buildTargets; older
+// loads without it fall back to the live ration, then to head count.
+// Rounded so each ingredient's pen pieces add back to the load row exactly.
+// Single-pen loads return [] -- the load rows already are that pen's.
+function entryPenFractions(load, e){
+  const pens = load.pens||[];
+  let lbs = null;
+  if(Array.isArray(e.penTargets) && e.penTargets.length===pens.length){
+    const byId = {}; e.penTargets.forEach(t=>byId[t.penId]=Number(t.lb)||0);
+    lbs = pens.map(p=>byId[p.id]||0);
+  } else {
+    const ration = rationById(load.rationId);
+    const idx = ration ? (ration.items||[]).findIndex(it=>it.ingredientId===e.ingredientId) : -1;
+    if(idx>=0) lbs = pens.map(p=> penItemLbs(p, ration, load.date)[idx]||0);
+  }
+  let sum = lbs ? lbs.reduce((s,v)=>s+v,0) : 0;
+  if(!(sum>0)){
+    const ration = rationById(load.rationId);
+    lbs = pens.map(p=> penLoadAsFed(p, ration, load.date)); sum = lbs.reduce((s,v)=>s+v,0);
+  }
+  if(!(sum>0)){
+    lbs = pens.map(p=> (Number(p.headCount)||0)*penShare(p)); sum = lbs.reduce((s,v)=>s+v,0);
+  }
+  return sum>0 ? lbs.map(v=>v/sum) : pens.map(()=>1/(pens.length||1));
+}
+function splitRounded(total, fracs){
+  let used = 0;
+  return fracs.map((f,i)=>{
+    if(i===fracs.length-1) return round1(total-used);
+    const v = round1(total*f); used += v; return v;
+  });
+}
+function penAllocationRows(load){
+  const pens = load.pens||[];
+  if(pens.length<2) return [];
+  const perEntry = (load.entries||[]).map(e=>{
+    const fr = entryPenFractions(load, e);
+    const tgt = splitRounded(Number(e.targetIncremental)||0, fr); // skipped lines keep their target, like the wagon row
+    const hasAct = !e.skipped && e.actualIncremental!==null && e.actualIncremental!==undefined;
+    const act = hasAct ? splitRounded(Number(e.actualIncremental)||0, fr) : null;
+    return {e, tgt, act};
+  });
+  const out = [];
+  pens.forEach((p,pi)=>{
+    const letter = String.fromCharCode(65 + (pi % 26));
+    perEntry.forEach(({e, tgt, act})=>{
+      const a = act ? act[pi] : null;
+      out.push({
+        letter, penId: p.id,
+        penName: penShare(p)<1 ? `${p.penName} (${Math.round(penShare(p)*100)}%)` : p.penName,
+        headCount: p.headCount,
+        ingredientName: e.ingredientName || ingredientName(e.ingredientId),
+        target: tgt[pi],
+        actual: e.skipped ? null : a,
+        variance: a!==null && !e.skipped ? round1(a - tgt[pi]) : null,
+        variancePct: a!==null && !e.skipped ? (e.variancePct??null) : null,
+        skipped: !!e.skipped
+      });
+    });
+  });
+  return out;
 }
 
 /* ---------------- wagon capacity / splitting a big call ---------------- */

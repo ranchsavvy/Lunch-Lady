@@ -52,6 +52,8 @@ One row per ingredient per load, then a summary row under each load, then a blan
 | M | Lb per Head | Summary rows only. Load: delivered ÷ total head. Field delivery: delivered ÷ head for the whole delivery, **not** per day |
 | N | Load Comment | Repeats on every row of its load so filtering/sorting never loses it |
 
+**Combined loads (2+ pens):** after the load's own ingredient rows, each pen gets its own set of ingredient rows with Load # `1-A`, `1-B`… and Ration `<ration> - allocated to pen`. Allocation assumes the load was fed as calculated: each pen gets the same fraction of an ingredient's actual lb as it had of that ingredient's target (per ingredient, so fixed lb/hd lines split by head and % lines by intake target). Pen pieces add back exactly to the load row. Shares are snapshotted in `buildTargets` (`entry.penTargets`). **Summing Actual lb across every row double-counts combined loads** — use either the plain-number Load # rows (wagon) or the lettered rows (per pen), never both.
+
 After the load/delivery rows: an **Ingredient Totals** block (mixer target, mixer actual, field delivered, total delivered, count of weigh-ups counted at target), then the day's **Comments**.
 
 ### Email text
