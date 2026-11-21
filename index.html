@@ -891,7 +891,8 @@ function splitLoad(loadId){
     });
     const nl = {id:uid(), date:load.date, rationId:load.rationId,
       startingWeight: gi===0 ? load.startingWeight : 0,
-      pens, entries:[], status:'pending', splitGroup: group};
+      pens, entries:[], status:'pending', splitGroup: group,
+      ...(load.copiedFrom ? {copiedFrom: load.copiedFrom} : {})};
     buildTargets(nl);
     return nl;
   });
@@ -1219,10 +1220,15 @@ function renderToday(){
   </div>` : '';
 
   const prevFc = findPreviousFeedCall(currentDate);
-  const repeatCard = prevFc ? `
+  // once a row has been copied to today it drops off the list; deleting
+  // the copied load from today brings it back
+  const alreadyCopied = {};
+  if(prevFc) loads.forEach(l=>{ if(l.copiedFrom && l.copiedFrom.date===prevFc.date) alreadyCopied[l.copiedFrom.key] = true; });
+  const repeatList = prevFc ? repeatRows(prevFc).filter(r=>!alreadyCopied[r.group || r.load.id]) : [];
+  const repeatCard = repeatList.length ? `
   <div class="card">
     <div class="muted" style="font-weight:700;margin-bottom:6px">Repeat from ${displayDate(prevFc.date)}</div>
-    ${repeatRows(prevFc).map(r=>{
+    ${repeatList.map(r=>{
       const l = r.load;
       const ration = rationById(l.rationId);
       const penNames = (l.pens||[]).map(p=>p.penName).join(', ');
@@ -1375,13 +1381,13 @@ function wireTabEvents(){
       const sourceDate = e.currentTarget.dataset.repeatdate;
       const prevFc = state.feedCalls.find(f=>f.date===sourceDate);
       const sourceLoad = prevFc && prevFc.loads.find(l=>l.id===e.currentTarget.dataset.repeatload);
-      if(sourceLoad) openRepeatLoadSheet(sourceLoad, sourceDate);
+      if(sourceLoad) openRepeatLoadSheet(sourceLoad, sourceDate, sourceLoad.id);
     }));
     document.querySelectorAll('[data-repeatgroup]').forEach(b=>b.addEventListener('click', e=>{
       const sourceDate = e.currentTarget.dataset.repeatdate;
       const prevFc = state.feedCalls.find(f=>f.date===sourceDate);
       const grp = prevFc ? prevFc.loads.filter(l=>l.splitGroup===e.currentTarget.dataset.repeatgroup) : [];
-      if(grp.length) openRepeatLoadSheet(mergeSplitGroup(grp), sourceDate);
+      if(grp.length) openRepeatLoadSheet(mergeSplitGroup(grp), sourceDate, e.currentTarget.dataset.repeatgroup);
     }));
     document.querySelectorAll('[data-splitload]').forEach(b=>b.addEventListener('click', e=>{
       e.stopPropagation();
@@ -1766,7 +1772,7 @@ function findPreviousFeedCall(beforeDate){
   priors.sort((a,b)=> b.date.localeCompare(a.date));
   return priors[0];
 }
-function openRepeatLoadSheet(sourceLoad, sourceDate){
+function openRepeatLoadSheet(sourceLoad, sourceDate, sourceKey){
   const initialPens = (sourceLoad.pens||[]).map(p=>{
     if(p.rosterId){
       const rp = state.pens.find(x=>x.id===p.rosterId);
@@ -1796,7 +1802,8 @@ function openRepeatLoadSheet(sourceLoad, sourceDate){
     initialPens,
     onSave(rationId, startWeight, pens){
       const fc = getOrCreateFeedCall(currentDate);
-      const load = {id:uid(), date:currentDate, rationId, startingWeight:startWeight, pens, entries:[], status:'pending'};
+      const load = {id:uid(), date:currentDate, rationId, startingWeight:startWeight, pens, entries:[], status:'pending',
+        copiedFrom: {date: sourceDate, key: sourceKey}};
       buildTargets(load);
       fc.loads.push(load);
       writeBackRosterPens(pens, rationId);
